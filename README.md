@@ -18,9 +18,19 @@ Turn *Crusader Kings III* save files into interactive historical archives, allow
 
 ## Project Status
 
-**In planning — Development has not started yet.**
+**In planning — Initial React development environment started.**
 
-The project scope and core features are being defined. The next step is to investigate the Crusader Kings III save file format and validate the feasibility of extracting and processing campaign data.
+The project scope and core features are being defined. The React application is available locally through Vite:
+
+```bash
+npm install
+npm run dev
+```
+
+## Agent documentation
+
+Repository-wide agent instructions are maintained in [AGENTS.md](AGENTS.md).
+Feature-specific requirements are kept in small documents under [docs/features/](docs/features/).
 
 ---
 
