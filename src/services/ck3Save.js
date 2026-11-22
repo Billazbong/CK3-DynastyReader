@@ -137,6 +137,16 @@ function getTitleRank(key) {
 }
 
 /**
+ * Removes CK3's numeric localization suffix from a character first name.
+ * @param {string|null} firstName The raw first_name value from the save.
+ * @returns {string|null} The display name without a trailing _N suffix.
+ */
+function normalizeFirstName(firstName) {
+  if (!firstName) return null
+  return firstName.replace(/_\d+$/, '').trim() || null
+}
+
+/**
  * Decompresses a .ck3 archive, extracts gamestate, and creates a player recap.
  * @param {File} file The local CK3 save file selected by the user.
  * @returns {Promise<object>} Normalized player, dynasty, trait, title, and holding data.
@@ -238,7 +248,7 @@ export async function parseCk3Save(file) {
 
   return {
     characterId,
-    firstName: firstName || 'Unknown character',
+    firstName: normalizeFirstName(firstName) || 'Unknown character',
     nicknameText: nicknameText || null,
     nickname: nickname || null,
     houseName,
