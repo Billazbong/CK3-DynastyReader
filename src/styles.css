@@ -162,6 +162,16 @@ body {
   font-size: 0.875rem;
 }
 
+.data-list li small,
+.trait-list li small {
+  display: block;
+  margin-top: 4px;
+  color: #aaa18f;
+  font-family: Arial, sans-serif;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
 .empty-value {
   margin: 0;
   color: #aaa18f;

@@ -14,7 +14,15 @@ function FieldList({ items, emptyText }) {
             ? item
             : (
                 <>
-                  <strong>{item.name}</strong>
+                  <div>
+                    <strong>{item.name}</strong>
+                    {item.acquisitionDate && (
+                      <small>
+                        Acquired {item.acquisitionDate}
+                        {item.acquisitionCause ? ` — ${item.acquisitionCause}` : ' — Cause unavailable'}
+                      </small>
+                    )}
+                  </div>
                   <span>{item.rank}</span>
                 </>
               )}
@@ -63,6 +71,51 @@ function TraitList({ traits }) {
 }
 
 /**
+ * Renders a health trait section with optional acquisition metadata.
+ * @param {{traits: Array<object>, emptyText: string}} props Health records and empty state.
+ * @returns {JSX.Element} A health trait list.
+ */
+function HealthList({ traits, emptyText }) {
+  if (!Array.isArray(traits) || !traits.length) {
+    return <p className="empty-value">{emptyText}</p>
+  }
+
+  return (
+    <ul className="trait-list">
+      {traits.map((trait) => (
+        <li key={trait.id}>
+          <img
+            src={`/resources/traits/${trait.iconCandidates[0]}.webp`}
+            alt=""
+            width="48"
+            height="48"
+            data-icon-index="0"
+            onError={(event) => {
+              const image = event.currentTarget
+              const iconIndex = Number(image.dataset.iconIndex || 0) + 1
+              if (iconIndex < trait.iconCandidates.length) {
+                image.dataset.iconIndex = String(iconIndex)
+                image.src = `/resources/traits/${trait.iconCandidates[iconIndex]}.webp`
+              } else {
+                image.style.display = 'none'
+              }
+            }}
+          />
+          <div>
+            <span>{trait.name}</span>
+            <small>
+              {trait.acquisitionDate
+                ? `Acquired ${trait.acquisitionDate}`
+                : 'Acquisition date unavailable'}
+            </small>
+          </div>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/**
  * Renders the current player character's identity and recap fields.
  * @param {{profile: object}} props Normalized player profile data.
  * @returns {JSX.Element} The player character recap card.
@@ -100,6 +153,38 @@ function PlayerCharacterRecap({ profile }) {
       <section className="recap-section" aria-labelledby="traits-heading">
         <h3 id="traits-heading">Traits</h3>
         <TraitList traits={profile.traits} />
+      </section>
+
+      <section className="recap-section" aria-labelledby="diseases-heading">
+        <h3 id="diseases-heading">Diseases</h3>
+        <HealthList traits={profile.diseaseTraits} emptyText="No diseases found." />
+      </section>
+
+      <section className="recap-section" aria-labelledby="injuries-heading">
+        <h3 id="injuries-heading">Injuries</h3>
+        <HealthList traits={profile.injuryTraits} emptyText="No injuries found." />
+      </section>
+
+      <section className="recap-section" aria-labelledby="status-heading">
+        <h3 id="status-heading">Fame and Piety</h3>
+        <dl className="identity-grid">
+          <div>
+            <dt>Prestige / Fame</dt>
+            <dd>
+              {profile.fame?.current
+                ? `Current ${profile.fame.current}`
+                : 'Maximum not available'}
+            </dd>
+          </div>
+          <div>
+            <dt>Piety</dt>
+            <dd>
+              {profile.piety?.current
+                ? `Current ${profile.piety.current}`
+                : 'Maximum not available'}
+            </dd>
+          </div>
+        </dl>
       </section>
     </article>
   )

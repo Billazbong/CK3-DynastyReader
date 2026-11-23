@@ -37,3 +37,14 @@ Track title creation, ownership, succession, and territorial evolution.
 - Missing title localization is handled visibly.
 - The current holder agrees with the save's latest title state.
 
+## Acquisition detail
+
+Each title or holding may include:
+
+- Current holder acquisition date
+- Matching dated `history.type`
+- A holder ID for the acquisition event
+- "Cause unavailable" when no matching dated holder event exists
+
+Cause labels must come directly from CK3 history types. The UI must not infer inheritance, conquest, or grant from title rank or context.
+

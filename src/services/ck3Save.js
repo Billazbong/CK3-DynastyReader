@@ -4,6 +4,7 @@ import {
   LEGACY_TRACK_XP_TRAITS,
   TRACKED_TRAIT_ICON_STEMS,
 } from '../data/traitIcons.js'
+import { DISEASE_TRAITS, INJURY_TRAITS } from '../data/traitHealth.js'
 
 /**
  * Finds a named brace-delimited block and returns its inner text.
@@ -206,6 +207,8 @@ function normalizeTraits(gamestate, traitIds, traitXpAmounts) {
       name: TRAIT_NAMES[key] || key.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpper()),
       level,
       iconCandidates,
+      acquisitionDate: null,
+      acquisitionEvent: null,
     }
   }).filter(Boolean)
 }
@@ -229,6 +232,60 @@ function sortTitlesByRank(titles) {
   return [...titles].sort((left, right) =>
     (rankOrder[left.rank] ?? 7) - (rankOrder[right.rank] ?? 7),
   )
+}
+
+/**
+ * Maps CK3 title history types to readable acquisition labels.
+ * @param {string} type CK3 history type.
+ * @returns {string} Readable cause label.
+ */
+function formatTitleCause(type) {
+  const causes = {
+    granted: 'Granted',
+    conquest_claim: 'Conquest claim',
+    created: 'Created',
+    inherited: 'Inherited',
+    succession: 'Succession',
+    conquered: 'Conquered',
+    usurped: 'Usurped',
+    revoked: 'Revoked',
+    leased_out: 'Leased',
+    lease_revoked: 'Lease revoked',
+  }
+  return causes[type] || type.replaceAll('_', ' ')
+}
+
+/**
+ * Reads the latest acquisition event for a character from title history.
+ * @param {string} titleBlock The landed-title record content.
+ * @param {string} characterId Numeric player character ID.
+ * @param {string|null} fallbackDate Current holder date.
+ * @returns {{date: string|null, cause: string|null, holderId: string|null}} Acquisition metadata.
+ */
+function getTitleAcquisition(titleBlock, characterId, fallbackDate) {
+  const history = findBlock(titleBlock, 'history')
+  if (!history) {
+    return { date: fallbackDate, cause: null, holderId: fallbackDate ? characterId : null }
+  }
+
+  const eventPattern = /([0-9]+\.[0-9]+\.[0-9]+)=\{([^}]*)\}/g
+  const matchingEvents = []
+  let match
+
+  while ((match = eventPattern.exec(history)) !== null) {
+    const holder = readScalar(match[2], 'holder')
+    const type = readScalar(match[2], 'type')
+    if (holder === characterId) {
+      matchingEvents.push({ date: match[1], cause: type ? formatTitleCause(type) : null, holderId: holder })
+    }
+  }
+
+  matchingEvents.sort((left, right) => right.date.localeCompare(left.date))
+  return matchingEvents[0] || {
+    date: fallbackDate,
+    cause: null,
+    holderId: fallbackDate ? characterId : null,
+  }
 }
 
 /**
@@ -288,6 +345,23 @@ export async function parseCk3Save(file) {
   const traitIds = readArray(character, 'traits')
   const traitXpAmounts = readArray(character, 'trait_xp_amounts')
   const traits = normalizeTraits(text, traitIds, traitXpAmounts)
+  const diseaseTraits = []
+  const injuryTraits = []
+
+  for (const trait of traits) {
+    if (DISEASE_TRAITS[trait.key]) {
+      diseaseTraits.push({
+        ...trait,
+        name: DISEASE_TRAITS[trait.key],
+      })
+    }
+    if (INJURY_TRAITS[trait.key]) {
+      injuryTraits.push({
+        ...trait,
+        name: INJURY_TRAITS[trait.key],
+      })
+    }
+  }
 
   let houseName = null
   let dynastyId = null
@@ -320,10 +394,15 @@ export async function parseCk3Save(file) {
 
       const titleKey = readScalar(record.content, 'key') || record.key
       const titleName = findTitleName(record.content) || titleKey
+      const holderDate = readScalar(record.content, 'date')
+      const acquisition = getTitleAcquisition(record.content, characterId, holderDate)
       const title = {
         id: titleKey,
         name: titleName,
         rank: getTitleRank(titleKey),
+        acquisitionDate: acquisition.date,
+        acquisitionCause: acquisition.cause,
+        acquisitionHolderId: acquisition.holderId,
       }
 
 
@@ -347,6 +426,10 @@ export async function parseCk3Save(file) {
     dynastyName,
     traitIds,
     traits,
+    diseaseTraits,
+    injuryTraits,
+    fame: null,
+    piety: null,
     heldTitles: sortedHeldTitles,
     holdings: sortedHoldings,
   }

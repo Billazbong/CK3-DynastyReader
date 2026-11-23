@@ -67,3 +67,11 @@ Education traits are grouped by education family in the Traits catalog. Debug tr
 
 Held titles are ordered from highest to lowest tier: unrecognized or special title, hegemony, empire, kingdom, duchy, county, then barony.
 
+## Expanded character detail
+
+Held titles and county/barony holdings include the landed-title `date` and a directly matching dated `history.type` cause when the save provides it.
+
+The profile separates diseases and injuries from ordinary traits. Disease/injury acquisition dates remain unavailable unless a directly linked dated event exists. Prestige/fame and piety values are shown only when their current or lifetime fields can be validated; this implementation must not treat an accumulated currency value as a level maximum.
+
+Trait acquisition date and event fields remain unavailable until the save structure provides a direct dated record for the character trait.
+
