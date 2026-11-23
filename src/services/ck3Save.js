@@ -1,4 +1,9 @@
 import JSZip from 'jszip'
+import { TRAIT_NAMES } from '../data/traitNames.js'
+import {
+  LEGACY_TRACK_XP_TRAITS,
+  TRACKED_TRAIT_ICON_STEMS,
+} from '../data/traitIcons.js'
 
 /**
  * Finds a named brace-delimited block and returns its inner text.
@@ -128,6 +133,7 @@ function findTitleName(titleBlock) {
  * @returns {string} A human-readable title rank.
  */
 function getTitleRank(key) {
+  if (key.startsWith('h_')) return 'Hegemony'
   if (key.startsWith('e_')) return 'Empire'
   if (key.startsWith('k_')) return 'Kingdom'
   if (key.startsWith('d_')) return 'Duchy'
@@ -144,6 +150,85 @@ function getTitleRank(key) {
 function normalizeFirstName(firstName) {
   if (!firstName) return null
   return firstName.replace(/_\d+$/, '').trim() || null
+}
+
+/**
+ * Resolves numeric save trait IDs through traits_lookup and display names.
+ * @param {string} gamestate The complete CK3 gamestate text.
+ * @param {string[]} traitIds Numeric trait IDs from the character record.
+ * @param {string[]} traitXpAmounts Legacy tracked-lifestyle XP values.
+ * @returns {{id: string, key: string, name: string}[]} Normalized trait records.
+ */
+function normalizeTraits(gamestate, traitIds, traitXpAmounts) {
+  const lookupMatch = /(?:^|\n)\s*traits_lookup=\{([^}]*)\}/m.exec(gamestate)
+  const keys = lookupMatch ? lookupMatch[1].trim().split(/\s+/).filter(Boolean) : []
+
+  return traitIds.map((id) => {
+    const numericId = Number(id)
+    const key = keys[numericId] || `trait_${id}`
+    if (key.startsWith('debug_')) return null
+    const levelMatch = /_(\d)$/.exec(key)
+    let level = levelMatch ? Number(levelMatch[1]) : null
+    let iconCandidates = []
+
+    if (level !== null) {
+      iconCandidates.push(`${key.replace(/_\d$/, '')}_${level}`, key)
+    } else if (TRACKED_TRAIT_ICON_STEMS[key]) {
+      const trackIndex = LEGACY_TRACK_XP_TRAITS.indexOf(key)
+      const xp = trackIndex >= 0 ? Number(traitXpAmounts[trackIndex]) : 0
+
+      if (trackIndex >= 0 && Number.isFinite(xp)) {
+        level = xp >= 100 ? 3 : xp >= 66 ? 2 : xp >= 33 ? 1 : null
+      }
+
+      const iconStem = TRACKED_TRAIT_ICON_STEMS[key]
+      if (level) iconCandidates.push(`${iconStem}_${level}`)
+      iconCandidates.push(`${iconStem}_base`, iconStem, key)
+    } else {
+      const knownAliases = {
+        lifestyle_traveler: ['traveler', 'lifestyle_traveler'],
+        tourney_participant: ['tournament', 'tourney_participant'],
+        pilgrim: ['pilgrim_1', 'pilgrim', 'pilgrim_base'],
+        child_of_concubine_female: ['child_of_concubine'],
+        child_of_concubine_male: ['child_of_concubine'],
+        knight_errant: ['knight_of_the_lion', 'knight_of_the_swan', 'knight_of_the_tiger'],
+      }
+      iconCandidates = knownAliases[key] || [key]
+    }
+
+    iconCandidates = iconCandidates.filter((candidate, index, candidates) =>
+      candidate && candidates.indexOf(candidate) === index,
+    )
+
+    return {
+      id,
+      key,
+      name: TRAIT_NAMES[key] || key.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpper()),
+      level,
+      iconCandidates,
+    }
+  }).filter(Boolean)
+}
+
+/**
+ * Sorts held titles from the highest to lowest CK3 title tier.
+ * @param {{rank: string}[]} titles Title records to sort.
+ * @returns {{rank: string}[]} A new array ordered from best to worst.
+ */
+function sortTitlesByRank(titles) {
+  const rankOrder = {
+    Title: 0,
+    Hegemony: 1,
+    Empire: 2,
+    Kingdom: 3,
+    Duchy: 4,
+    County: 5,
+    Barony: 6,
+  }
+
+  return [...titles].sort((left, right) =>
+    (rankOrder[left.rank] ?? 7) - (rankOrder[right.rank] ?? 7),
+  )
 }
 
 /**
@@ -201,6 +286,8 @@ export async function parseCk3Save(file) {
   const nickname = readScalar(character, 'nickname')
   const dynastyHouseId = readScalar(character, 'dynasty_house')
   const traitIds = readArray(character, 'traits')
+  const traitXpAmounts = readArray(character, 'trait_xp_amounts')
+  const traits = normalizeTraits(text, traitIds, traitXpAmounts)
 
   let houseName = null
   let dynastyId = null
@@ -239,12 +326,17 @@ export async function parseCk3Save(file) {
         rank: getTitleRank(titleKey),
       }
 
-      heldTitles.push(title)
-      if (titleKey.startsWith('c_') || titleKey.startsWith('b_')) {
+
+      if (titleKey.startsWith('b_')) {
         holdings.push(title)
+      } else {
+        heldTitles.push(title)
       }
     }
   }
+
+  const sortedHeldTitles = sortTitlesByRank(heldTitles)
+  const sortedHoldings = sortTitlesByRank(holdings)
 
   return {
     characterId,
@@ -254,7 +346,8 @@ export async function parseCk3Save(file) {
     houseName,
     dynastyName,
     traitIds,
-    heldTitles,
-    holdings,
+    traits,
+    heldTitles: sortedHeldTitles,
+    holdings: sortedHoldings,
   }
 }

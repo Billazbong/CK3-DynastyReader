@@ -1,5 +1,6 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import PlayerCharacterRecap from './components/PlayerCharacterRecap.jsx'
+import TraitCatalogPage from './components/TraitCatalogPage.jsx'
 import { parseCk3Save } from './services/ck3Save.js'
 
 /**
@@ -12,6 +13,20 @@ function App() {
   const [status, setStatus] = useState('idle')
   const [error, setError] = useState('')
   const [fileName, setFileName] = useState('')
+  const [page, setPage] = useState(window.location.hash === '#traits' ? 'traits' : 'profile')
+
+  useEffect(() => {
+    /**
+     * Updates the active in-app page when the URL hash changes.
+     * @returns {void}
+     */
+    function handleHashChange() {
+      setPage(window.location.hash === '#traits' ? 'traits' : 'profile')
+    }
+
+    window.addEventListener('hashchange', handleHashChange)
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  }, [])
 
   /**
    * Reads the selected save and updates loading, error, or profile state.
@@ -55,6 +70,20 @@ function App() {
           <h1>Dynasty Chronicle</h1>
         </header>
 
+        <nav className="app-navigation" aria-label="Application pages">
+          <a href="#profile" aria-current={page === 'profile' ? 'page' : undefined}>
+            Character
+          </a>
+          <a href="#traits" aria-current={page === 'traits' ? 'page' : undefined}>
+            Traits
+          </a>
+        </nav>
+
+        {page === 'traits' ? (
+          <TraitCatalogPage />
+        ) : (
+          <>
+
         <input
           ref={fileInputRef}
           className="visually-hidden"
@@ -84,6 +113,8 @@ function App() {
         )}
 
         {profile && <PlayerCharacterRecap profile={profile} />}
+          </>
+        )}
       </div>
     </main>
   )

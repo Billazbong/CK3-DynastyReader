@@ -167,9 +167,149 @@ body {
   color: #aaa18f;
 }
 
+.trait-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trait-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px;
+  border-left: 2px solid #66553a;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.trait-list img {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45));
+}
+
+.app-navigation {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 0 24px;
+}
+
+.app-navigation a {
+  padding: 8px 14px;
+  border: 1px solid #66553a;
+  color: #ece4d3;
+  background: #30291f;
+  text-decoration: none;
+  font-family: Arial, sans-serif;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.app-navigation a[aria-current="page"] {
+  background: #4d422f;
+}
+
+.trait-catalog {
+  width: 100%;
+  text-align: left;
+}
+
+.catalog-header {
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.catalog-header h2 {
+  margin: 0 0 18px;
+  font-size: clamp(2.25rem, 7vw, 4rem);
+  font-weight: 500;
+}
+
+.trait-search {
+  display: grid;
+  width: min(480px, 100%);
+  margin: 0 auto;
+  text-align: left;
+}
+
+.trait-search span {
+  margin-bottom: 6px;
+  color: #b6a27d;
+  font-family: Arial, sans-serif;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.trait-search input {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid #66553a;
+  border-radius: 2px;
+  color: #ece4d3;
+  background: #211e19;
+  font: inherit;
+}
+
+.catalog-count {
+  margin: 10px 0 0;
+  color: #aaa18f;
+  font-size: 0.875rem;
+}
+
+.trait-catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.trait-catalog-card {
+  min-width: 0;
+  min-height: 150px;
+  padding: 14px;
+  border: 1px solid rgba(210, 183, 137, 0.22);
+  background: rgba(26, 23, 19, 0.92);
+  text-align: center;
+}
+
+.trait-catalog-card h3 {
+  margin: 8px 0 6px;
+  font-size: 1rem;
+}
+
+.trait-catalog-card code {
+  color: #aaa18f;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.trait-icon-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 72px;
+}
+
+.trait-icon-row img {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.5));
+}
+
 @media (max-width: 600px) {
   .identity-grid,
-  .data-list {
+  .data-list,
+  .trait-list,
+  .trait-catalog-grid {
     grid-template-columns: 1fr;
   }
 }
