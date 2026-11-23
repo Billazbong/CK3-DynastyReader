@@ -27,6 +27,17 @@ npm install
 npm run dev
 ```
 
+## Hosting and privacy
+
+The app can be deployed as a static Cloudflare Pages site:
+
+```bash
+npm run build
+npm run deploy
+```
+
+There is no application backend and no save-file upload endpoint. Saves are stored in IndexedDB inside the current browser and remain on that device. Cloudflare hosts the static JavaScript, CSS, and trait icons only.
+
 ## Agent documentation
 
 Repository-wide agent instructions are maintained in [AGENTS.md](AGENTS.md).

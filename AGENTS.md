@@ -23,6 +23,7 @@ This is an independent fan-made project and is not affiliated with or endorsed b
 - [Character profiles](docs/features/character-profiles.md)
 - [Dynasty statistics](docs/features/dynasty-statistics.md)
 - [Gamestate format reference](docs/gamestate/README.md)
+- [Local save library](docs/features/local-save-library.md)
 
 Read only the specifications needed for the current task. Do not load every feature document into the implementation context.
 
@@ -43,6 +44,8 @@ As the application grows, keep feature code grouped by domain rather than creati
 - JavaScript and JSX
 - ESLint flat configuration
 - Browser-local processing for save files
+- Static Cloudflare Pages hosting
+- Browser-local IndexedDB save library
 
 Do not introduce a backend, database, state framework, UI framework, or new package without an explicit requirement or a clear project need.
 

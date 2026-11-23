@@ -64,6 +64,79 @@ body {
   opacity: 0.65;
 }
 
+.secondary-button,
+.library-item-actions button {
+  cursor: pointer;
+  opacity: 1;
+  color: #ece4d3;
+  background: #30291f;
+}
+
+.save-library {
+  text-align: left;
+}
+
+.library-header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.library-header h2 {
+  margin: 0;
+  font-size: clamp(2.25rem, 7vw, 4rem);
+  font-weight: 500;
+}
+
+.library-note {
+  color: #bdb4a3;
+  line-height: 1.5;
+}
+
+.library-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.save-library-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.save-library-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid rgba(210, 183, 137, 0.22);
+  background: rgba(26, 23, 19, 0.92);
+}
+
+.save-library-list li > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.save-library-list li span,
+.save-library-list li small {
+  color: #aaa18f;
+  overflow-wrap: anywhere;
+}
+
+.library-item-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.library-item-actions button {
+  min-height: 38px;
+}
+
 .status-message,
 .error-message {
   margin: 0 auto 24px;
