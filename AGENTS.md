@@ -22,6 +22,7 @@ This is an independent fan-made project and is not affiliated with or endorsed b
 - [Title history](docs/features/title-history.md)
 - [Character profiles](docs/features/character-profiles.md)
 - [Dynasty statistics](docs/features/dynasty-statistics.md)
+- [Gamestate format reference](docs/gamestate/README.md)
 
 Read only the specifications needed for the current task. Do not load every feature document into the implementation context.
 

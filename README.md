@@ -31,6 +31,7 @@ npm run dev
 
 Repository-wide agent instructions are maintained in [AGENTS.md](AGENTS.md).
 Feature-specific requirements are kept in small documents under [docs/features/](docs/features/).
+The observed Crusader Kings III gamestate format is documented under [docs/gamestate/](docs/gamestate/).
 
 ---
 

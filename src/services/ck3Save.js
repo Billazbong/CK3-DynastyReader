@@ -5,6 +5,7 @@ import {
   TRACKED_TRAIT_ICON_STEMS,
 } from '../data/traitIcons.js'
 import { DISEASE_TRAITS, INJURY_TRAITS } from '../data/traitHealth.js'
+import { FAME_LEVELS, PIETY_LEVELS } from '../data/currencyLevels.js'
 
 /**
  * Finds a named brace-delimited block and returns its inner text.
@@ -289,6 +290,35 @@ function getTitleAcquisition(titleBlock, characterId, fallbackDate) {
 }
 
 /**
+ * Parses a nested prestige or piety block and derives its accumulated level.
+ * @param {string} characterBlock Character record content.
+ * @param {'prestige'|'piety'} currencyKey Currency block key.
+ * @param {{threshold: number, name: string}[]} levels CK3 level thresholds.
+ * @returns {{current: string|null, accumulated: string|null, level: string|null}|null} Currency profile.
+ */
+function normalizeCurrency(characterBlock, currencyKey, levels) {
+  const currencyBlock = findBlock(characterBlock, currencyKey)
+  if (!currencyBlock) return null
+
+  const current = readScalar(currencyBlock, 'currency')
+  const accumulated = readScalar(currencyBlock, 'accumulated')
+  const accumulatedNumber = Number(accumulated)
+  let level = null
+
+  if (accumulated !== null && Number.isFinite(accumulatedNumber)) {
+    for (const candidate of levels) {
+      if (accumulatedNumber >= candidate.threshold) level = candidate.name
+    }
+  }
+
+  return {
+    current,
+    accumulated,
+    level,
+  }
+}
+
+/**
  * Decompresses a .ck3 archive, extracts gamestate, and creates a player recap.
  * @param {File} file The local CK3 save file selected by the user.
  * @returns {Promise<object>} Normalized player, dynasty, trait, title, and holding data.
@@ -345,6 +375,8 @@ export async function parseCk3Save(file) {
   const traitIds = readArray(character, 'traits')
   const traitXpAmounts = readArray(character, 'trait_xp_amounts')
   const traits = normalizeTraits(text, traitIds, traitXpAmounts)
+  const fame = normalizeCurrency(character, 'prestige', FAME_LEVELS)
+  const piety = normalizeCurrency(character, 'piety', PIETY_LEVELS)
   const diseaseTraits = []
   const injuryTraits = []
 
@@ -428,8 +460,8 @@ export async function parseCk3Save(file) {
     traits,
     diseaseTraits,
     injuryTraits,
-    fame: null,
-    piety: null,
+    fame,
+    piety,
     heldTitles: sortedHeldTitles,
     holdings: sortedHoldings,
   }

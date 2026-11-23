@@ -171,17 +171,17 @@ function PlayerCharacterRecap({ profile }) {
           <div>
             <dt>Prestige / Fame</dt>
             <dd>
-              {profile.fame?.current
-                ? `Current ${profile.fame.current}`
-                : 'Maximum not available'}
+              {profile.fame
+                ? `${profile.fame.level || 'Unknown level'}`
+                : 'Fame unavailable'}
             </dd>
           </div>
           <div>
             <dt>Piety</dt>
             <dd>
-              {profile.piety?.current
-                ? `Current ${profile.piety.current}`
-                : 'Maximum not available'}
+              {profile.piety
+                ? `${profile.piety.level || 'Unknown level'}`
+                : 'Piety unavailable'}
             </dd>
           </div>
         </dl>
