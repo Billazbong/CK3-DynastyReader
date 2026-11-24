@@ -299,39 +299,6 @@ function formatTitleCause(type) {
 }
 
 /**
- * Reads the latest acquisition event for a character from title history.
- * @param {string} titleBlock The landed-title record content.
- * @param {string} characterId Numeric player character ID.
- * @param {string|null} fallbackDate Current holder date.
- * @returns {{date: string|null, cause: string|null, holderId: string|null}} Acquisition metadata.
- */
-function getTitleAcquisition(titleBlock, characterId, fallbackDate) {
-  const history = findBlock(titleBlock, 'history')
-  if (!history) {
-    return { date: fallbackDate, cause: null, holderId: fallbackDate ? characterId : null }
-  }
-
-  const eventPattern = /([0-9]+\.[0-9]+\.[0-9]+)=\{([^}]*)\}/g
-  const matchingEvents = []
-  let match
-
-  while ((match = eventPattern.exec(history)) !== null) {
-    const holder = readScalar(match[2], 'holder')
-    const type = readScalar(match[2], 'type')
-    if (holder === characterId) {
-      matchingEvents.push({ date: match[1], cause: type ? formatTitleCause(type) : null, holderId: holder })
-    }
-  }
-
-  matchingEvents.sort((left, right) => right.date.localeCompare(left.date))
-  return matchingEvents[0] || {
-    date: fallbackDate,
-    cause: null,
-    holderId: fallbackDate ? characterId : null,
-  }
-}
-
-/**
  * Parses a nested prestige or piety block and derives its accumulated level.
  * @param {string} characterBlock Character record content.
  * @param {'prestige'|'piety'} currencyKey Currency block key.
@@ -361,6 +328,58 @@ function normalizeCurrency(characterBlock, currencyKey, levels) {
 }
 
 /**
+ * Compares CK3 dates chronologically as year, month, and day.
+ * @param {string|null} leftDate Left CK3 date.
+ * @param {string|null} rightDate Right CK3 date.
+ * @returns {number} Negative, zero, or positive comparison.
+ */
+function compareCk3Dates(leftDate, rightDate) {
+  if (!leftDate && !rightDate) return 0
+  if (!leftDate) return -1
+  if (!rightDate) return 1
+  const leftParts = leftDate.split('.').map((part) => Number(part) || 0)
+  const rightParts = rightDate.split('.').map((part) => Number(part) || 0)
+  for (let index = 0; index < 3; index += 1) {
+    if (leftParts[index] !== rightParts[index]) {
+      return leftParts[index] - rightParts[index]
+    }
+  }
+  return 0
+}
+
+/**
+ * Clamps title intervals to a character's death date.
+ * @param {Array<object>} intervals Title or holding intervals.
+ * @param {string|null} deathDate Character death date.
+ * @returns {Array<object>} Reconciled intervals.
+ */
+function reconcileIntervalsAtDeath(intervals, deathDate) {
+  if (!deathDate) return intervals
+
+  return intervals.map((interval) => {
+    if (compareCk3Dates(interval.acquisitionDate, deathDate) > 0) {
+      return interval
+    }
+
+    if (!interval.lossDate
+      || compareCk3Dates(interval.lossDate, deathDate) > 0) {
+      const inheritedCause = interval.lossCause
+        && /inherited|succession/i.test(interval.lossCause)
+        ? interval.lossCause
+        : null
+      return {
+        ...interval,
+        lossDate: deathDate,
+        lossCause: inheritedCause,
+        isCurrent: false,
+      }
+    }
+
+    return interval
+  })
+}
+
+/**
  * Builds a holder-indexed cache of titles and holdings for character normalization.
  * @param {string} gamestate The complete CK3 gamestate text.
  * @returns {Map<string, {heldTitles: object[], holdings: object[]}>} Titles grouped by holder ID.
@@ -371,34 +390,122 @@ function buildTitleCache(gamestate) {
   if (!landedTitles) return cache
 
   for (const record of readTopLevelRecords(landedTitles)) {
-    const holder = readScalar(record.content, 'holder')
-    if (!holder) continue
-
     const titleKey = readScalar(record.content, 'key') || record.key
     const titleName = findTitleName(record.content) || titleKey
-    const holderDate = readScalar(record.content, 'date')
-    const acquisition = getTitleAcquisition(record.content, holder, holderDate)
-    const title = {
-      id: titleKey,
-      name: titleName,
-      rank: getTitleRank(titleKey),
-      acquisitionDate: acquisition.date,
-      acquisitionCause: acquisition.cause,
-      acquisitionHolderId: acquisition.holderId,
+    const currentHolder = readScalar(record.content, 'holder')
+    const currentHolderDate = readScalar(record.content, 'date')
+    const history = findBlock(record.content, 'history')
+    const historyEvents = []
+
+    if (history) {
+      const eventPattern = /([0-9]+\.[0-9]+\.[0-9]+)=\{([^}]*)\}/g
+      let match
+      while ((match = eventPattern.exec(history)) !== null) {
+        const holder = readScalar(match[2], 'holder')
+        const type = readScalar(match[2], 'type')
+        if (holder) {
+          historyEvents.push({
+            date: match[1],
+            holder,
+            type,
+            cause: type ? formatTitleCause(type) : null,
+          })
+        }
+      }
     }
 
-    if (!cache.has(holder)) cache.set(holder, { heldTitles: [], holdings: [] })
-    const holderTitles = cache.get(holder)
-    if (titleKey.startsWith('c_') || titleKey.startsWith('b_')) {
-      holderTitles.holdings.push(title)
-    } else {
-      holderTitles.heldTitles.push(title)
+    historyEvents.sort((left, right) => compareCk3Dates(left.date, right.date))
+
+    const explicitLossTypes = new Set([
+      'revoked',
+      'destroyed',
+      'leased_out',
+      'lease_revoked',
+      'usurped',
+    ])
+
+    const characterIds = new Set(historyEvents.map((event) => event.holder))
+    if (currentHolder) characterIds.add(currentHolder)
+
+    for (const characterId of characterIds) {
+      const acquisitions = historyEvents
+        .map((event, eventIndex) => ({ event, eventIndex }))
+        .filter(({ event }) => event.holder === characterId)
+
+      if (!acquisitions.length && currentHolder === characterId && currentHolderDate) {
+        acquisitions.push({
+          event: {
+            date: currentHolderDate,
+            holder: characterId,
+            type: null,
+            cause: null,
+          },
+          eventIndex: -1,
+        })
+      }
+
+      for (const { event: acquisition, eventIndex: acquisitionIndex } of acquisitions) {
+        const laterEvents = acquisitionIndex >= 0
+          ? historyEvents.slice(acquisitionIndex + 1)
+          : historyEvents.filter((event) =>
+              compareCk3Dates(event.date, acquisition.date) > 0,
+            )
+
+        let lossEvent = laterEvents.find((event) => {
+          if (compareCk3Dates(event.date, acquisition.date) <= 0) return false
+          return event.holder !== characterId
+            || (event.holder === characterId
+              && Boolean(event.type)
+              && explicitLossTypes.has(event.type))
+        })
+
+        const interval = {
+          id: `${titleKey}-${characterId}-${acquisition.date}`,
+          titleId: titleKey,
+          name: titleName,
+          rank: getTitleRank(titleKey),
+          acquisitionDate: acquisition.date,
+          acquisitionCause: acquisition.cause,
+          lossDate: lossEvent?.date || null,
+          lossCause: lossEvent?.cause || null,
+          isCurrent: !lossEvent && currentHolder === characterId,
+        }
+
+        if (!cache.has(characterId)) {
+          cache.set(characterId, {
+            heldTitles: [],
+            holdings: [],
+            titleHistory: [],
+            holdingHistory: [],
+          })
+        }
+        const holderTitles = cache.get(characterId)
+        const targetHistory = titleKey.startsWith('c_') || titleKey.startsWith('b_')
+          ? holderTitles.holdingHistory
+          : holderTitles.titleHistory
+        targetHistory.push(interval)
+
+        if (interval.isCurrent) {
+          const currentTitle = { ...interval }
+          if (titleKey.startsWith('c_') || titleKey.startsWith('b_')) {
+            holderTitles.holdings.push(currentTitle)
+          } else {
+            holderTitles.heldTitles.push(currentTitle)
+          }
+        }
+      }
     }
   }
 
   for (const holderTitles of cache.values()) {
     holderTitles.heldTitles = sortTitlesByRank(holderTitles.heldTitles)
     holderTitles.holdings = sortTitlesByRank(holderTitles.holdings)
+    holderTitles.titleHistory.sort((left, right) =>
+      compareCk3Dates(right.acquisitionDate, left.acquisitionDate),
+    )
+    holderTitles.holdingHistory.sort((left, right) =>
+      compareCk3Dates(right.acquisitionDate, left.acquisitionDate),
+    )
   }
   return cache
 }
@@ -607,12 +714,23 @@ function normalizeCharacter(gamestate, characterId, character, playerCharacterId
   const childIds = familyLinks.childIds
   const parentIds = familyLinks.parentIds
 
-  const characterTitles = titleCache.get(characterId) || { heldTitles: [], holdings: [] }
+  const characterTitles = titleCache.get(characterId) || {
+    heldTitles: [],
+    holdings: [],
+    titleHistory: [],
+    holdingHistory: [],
+  }
   const deadData = findBlock(character, 'dead_data')
   const death = readScalar(character, 'death')
     || (deadData
       ? readScalar(deadData, 'date') || readScalar(deadData, 'death')
       : null)
+  const titleHistory = reconcileIntervalsAtDeath(characterTitles.titleHistory, death)
+  const holdingHistory = reconcileIntervalsAtDeath(characterTitles.holdingHistory, death)
+  const heldTitles = reconcileIntervalsAtDeath(characterTitles.heldTitles, death)
+    .filter((interval) => interval.isCurrent)
+  const holdings = reconcileIntervalsAtDeath(characterTitles.holdings, death)
+    .filter((interval) => interval.isCurrent)
   const isAlive = statusSets
     ? (statusSets.livingIds.has(characterId)
       || (!statusSets.deadIds.has(characterId) && !deadData && !death))
@@ -635,8 +753,10 @@ function normalizeCharacter(gamestate, characterId, character, playerCharacterId
     injuryTraits,
     fame,
     piety,
-    heldTitles: characterTitles.heldTitles,
-    holdings: characterTitles.holdings,
+    heldTitles,
+    holdings,
+    titleHistory,
+    holdingHistory,
     primarySpouseId,
     spouseIds,
     childIds,

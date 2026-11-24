@@ -48,3 +48,16 @@ Each title or holding may include:
 
 Cause labels must come directly from CK3 history types. The UI must not infer inheritance, conquest, or grant from title rank or context.
 
+## Character title history
+
+For each landed title, dated `history` entries are used to derive holder intervals:
+
+- A dated event whose `holder` matches the character starts or continues that character's interval.
+- The next dated holder-change or loss-type event ends the interval.
+- A title whose current `holder` matches the character and has no later loss event is marked as currently held.
+- Unknown history types remain visible instead of being converted to guessed causes.
+
+For a dead character, an open interval or a later loss event is clamped to the character's saved death date. If the next holder event has a direct `inherited` or `succession` type, that cause is preserved; a later unrelated loss event is not shown as occurring after the character died.
+
+The character Titles tab separates current titles and holdings from former title and holding history.
+

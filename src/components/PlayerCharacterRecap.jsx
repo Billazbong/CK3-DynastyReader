@@ -35,6 +35,42 @@ function FieldList({ items, emptyText }) {
 }
 
 /**
+ * Renders title or holding history with acquisition and loss dates.
+ * @param {{items: Array<object>, emptyText: string}} props Historical title records.
+ * @returns {JSX.Element} An empty-aware title history list.
+ */
+function FieldHistoryList({ items, emptyText }) {
+  if (!Array.isArray(items) || !items.length) {
+    return <p className="empty-value">{emptyText}</p>
+  }
+
+  return (
+    <ul className="data-list">
+      {items.map((item) => (
+          <li key={`${item.titleId}-${item.acquisitionDate}-${item.lossDate || 'current'}`}>
+            <div>
+              <strong>{item.name}</strong>
+              <small>
+                Acquired {item.acquisitionDate || 'date unavailable'}
+                {item.acquisitionCause ? ` — ${item.acquisitionCause}` : ' — Cause unavailable'}
+              </small>
+              {item.isCurrent ? (
+                <small>Currently held</small>
+              ) : (
+                <small>
+                  Lost {item.lossDate || 'date unavailable'}
+                  {item.lossCause ? ` — ${item.lossCause}` : ' — Cause unavailable'}
+                </small>
+              )}
+            </div>
+            <span>{item.rank}</span>
+          </li>
+        ))}
+    </ul>
+  )
+}
+
+/**
  * Renders CK3 traits with their display names and browser-ready icons.
  * @param {{traits: Array<{id: string, key: string, name: string, iconCandidates: string[]}>}} props Trait records.
  * @returns {JSX.Element} A list of traits.
@@ -279,12 +315,26 @@ function PlayerCharacterRecap({ profile, selectedCharacterId: requestedCharacter
       {activeTab === 'titles' && (
         <div role="tabpanel">
           <section className="recap-section" aria-labelledby="titles-heading">
-            <h3 id="titles-heading">Titles</h3>
-            <FieldList items={selected.heldTitles} emptyText="No held titles found." />
+            <h3 id="titles-heading">Current titles</h3>
+            <FieldList items={selected.heldTitles || []} emptyText="No currently held titles." />
           </section>
           <section className="recap-section" aria-labelledby="holdings-heading">
-            <h3 id="holdings-heading">Holdings</h3>
-            <FieldList items={selected.holdings} emptyText="No county or barony holdings found." />
+            <h3 id="holdings-heading">Current holdings</h3>
+            <FieldList items={selected.holdings || []} emptyText="No currently held county or barony holdings." />
+          </section>
+          <section className="recap-section" aria-labelledby="title-history-heading">
+            <h3 id="title-history-heading">Title history</h3>
+            <FieldHistoryList
+              items={selected.titleHistory || []}
+              emptyText="No title history found."
+            />
+          </section>
+          <section className="recap-section" aria-labelledby="holding-history-heading">
+            <h3 id="holding-history-heading">Holding history</h3>
+            <FieldHistoryList
+              items={selected.holdingHistory || []}
+              emptyText="No county or barony history found."
+            />
           </section>
         </div>
       )}
