@@ -87,6 +87,45 @@ function readArray(block, key) {
 }
 
 /**
+ * Reads every repeated scalar assignment for a key in a CK3 block.
+ * @param {string} block The CK3 block to search.
+ * @param {string} key The repeated assignment key.
+ * @returns {string[]} Every scalar value found.
+ */
+function readRepeated(block, key) {
+  const values = []
+  const pattern = new RegExp(`(?:^|\\n)\\s*${key}=([^\\n\\r]+)`, 'gm')
+  let match
+  while ((match = pattern.exec(block)) !== null) {
+    const value = match[1].trim()
+    if (value && value !== '{}') values.push(value)
+  }
+  return values
+}
+
+/**
+ * Reads ID assignments that may be scalar repeats or brace-delimited lists.
+ * @param {string} block The CK3 block to search.
+ * @param {string} key The relationship key.
+ * @returns {string[]} Unique numeric or named IDs in source order.
+ */
+function readIdList(block, key) {
+  const ids = new Set(readArray(block, key))
+
+  for (const value of readRepeated(block, key)) {
+    if (value.startsWith('{') && value.endsWith('}')) {
+      for (const id of value.slice(1, -1).trim().split(/\s+/).filter(Boolean)) {
+        ids.add(id)
+      }
+    } else if (/^[A-Za-z0-9_.-]+$/.test(value)) {
+      ids.add(value)
+    }
+  }
+
+  return [...ids]
+}
+
+/**
  * Finds direct top-level ID-keyed records in a landed-titles or similar block.
  * @param {string} block The parent block content.
  * @returns {{key: string, content: string}[]} Direct record keys and contents.
@@ -99,15 +138,16 @@ function readTopLevelRecords(block) {
   while ((match = pattern.exec(block)) !== null) {
     const key = match[1]
     const openingBrace = pattern.lastIndex - 1
+
     let recordDepth = 0
     let content
-
     for (let recordIndex = openingBrace; recordIndex < block.length; recordIndex += 1) {
       if (block[recordIndex] === '{') recordDepth += 1
       if (block[recordIndex] === '}') {
         recordDepth -= 1
         if (recordDepth === 0) {
           content = block.slice(openingBrace + 1, recordIndex)
+          pattern.lastIndex = recordIndex + 1
           break
         }
       }
@@ -205,7 +245,9 @@ function normalizeTraits(gamestate, traitIds, traitXpAmounts) {
     return {
       id,
       key,
-      name: TRAIT_NAMES[key] || key.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpper()),
+      name: TRAIT_NAMES[key] || key
+        .replaceAll('_', ' ')
+        .replace(/\b\w/g, (letter) => letter.toUpperCase()),
       level,
       iconCandidates,
       acquisitionDate: null,
@@ -319,19 +361,323 @@ function normalizeCurrency(characterBlock, currencyKey, levels) {
 }
 
 /**
+ * Builds a holder-indexed cache of titles and holdings for character normalization.
+ * @param {string} gamestate The complete CK3 gamestate text.
+ * @returns {Map<string, {heldTitles: object[], holdings: object[]}>} Titles grouped by holder ID.
+ */
+function buildTitleCache(gamestate) {
+  const cache = new Map()
+  const landedTitles = findBlock(gamestate, 'landed_titles')
+  if (!landedTitles) return cache
+
+  for (const record of readTopLevelRecords(landedTitles)) {
+    const holder = readScalar(record.content, 'holder')
+    if (!holder) continue
+
+    const titleKey = readScalar(record.content, 'key') || record.key
+    const titleName = findTitleName(record.content) || titleKey
+    const holderDate = readScalar(record.content, 'date')
+    const acquisition = getTitleAcquisition(record.content, holder, holderDate)
+    const title = {
+      id: titleKey,
+      name: titleName,
+      rank: getTitleRank(titleKey),
+      acquisitionDate: acquisition.date,
+      acquisitionCause: acquisition.cause,
+      acquisitionHolderId: acquisition.holderId,
+    }
+
+    if (!cache.has(holder)) cache.set(holder, { heldTitles: [], holdings: [] })
+    const holderTitles = cache.get(holder)
+    if (titleKey.startsWith('c_') || titleKey.startsWith('b_')) {
+      holderTitles.holdings.push(title)
+    } else {
+      holderTitles.heldTitles.push(title)
+    }
+  }
+
+  for (const holderTitles of cache.values()) {
+    holderTitles.heldTitles = sortTitlesByRank(holderTitles.heldTitles)
+    holderTitles.holdings = sortTitlesByRank(holderTitles.holdings)
+  }
+  return cache
+}
+
+/**
+ * Finds all character records available in the save's live and dead collections.
+ * @param {string} gamestate The complete CK3 gamestate text.
+ * @returns {Map<string, string>} Character IDs mapped to their record contents.
+ */
+function findCharacterRecords(gamestate) {
+  const records = new Map()
+  const collectionNames = ['characters', 'living', 'dead_unprunable', 'dead_prunable']
+
+  for (const collectionName of collectionNames) {
+    const collection = findBlock(gamestate, collectionName)
+    if (!collection) continue
+    for (const record of readTopLevelRecords(collection)) {
+      if (!records.has(record.key)) records.set(record.key, record.content)
+    }
+  }
+
+  return records
+}
+
+/**
+ * Builds explicit living and dead character-ID sets from save collections.
+ * @param {string} gamestate The complete CK3 gamestate text.
+ * @returns {{livingIds: Set<string>, deadIds: Set<string>}} Character status sets.
+ */
+function findCharacterStatusSets(gamestate) {
+  const livingIds = new Set()
+  const deadIds = new Set()
+
+  for (const collectionName of ['living']) {
+    const collection = findBlock(gamestate, collectionName)
+    if (!collection) continue
+    for (const record of readTopLevelRecords(collection)) livingIds.add(record.key)
+  }
+
+  for (const collectionName of ['dead_unprunable', 'dead_prunable']) {
+    const collection = findBlock(gamestate, collectionName)
+    if (!collection) continue
+    for (const record of readTopLevelRecords(collection)) deadIds.add(record.key)
+  }
+
+  return { livingIds, deadIds }
+}
+
+/**
+ * Finds every house ID linked to one dynasty ID.
+ * @param {string} gamestate The complete CK3 gamestate text.
+ * @param {string} dynastyId The stable dynasty ID.
+ * @returns {Set<string>} House IDs belonging to the dynasty.
+ */
+function findHouseIdsForDynasty(gamestate, dynastyId) {
+  const houseIds = new Set()
+  const dynasties = findBlock(gamestate, 'dynasties')
+  if (!dynasties) return houseIds
+
+  for (const record of readTopLevelRecords(dynasties)) {
+    const recordDynastyId = readScalar(record.content, 'dynasty')
+    if (recordDynastyId === dynastyId) houseIds.add(record.key)
+  }
+  return houseIds
+}
+
+/**
+ * Reads explicit and reverse-parent family links from one character record.
+ * @param {string} characterRecord Character record content.
+ * @returns {{parentIds: string[], childIds: string[], spouseIds: string[]}} Direct family links.
+ */
+function readDirectFamilyLinks(characterRecord) {
+  const family = findBlock(characterRecord, 'family_data')
+  const parentIds = []
+  const childIds = family
+    ? readIdList(family, 'child')
+    : readIdList(characterRecord, 'child')
+  const spouseIds = family
+    ? [...new Set([
+        ...readIdList(family, 'spouse'),
+        ...readIdList(family, 'former_spouses'),
+      ])]
+    : readIdList(characterRecord, 'spouse')
+
+  for (const key of ['father', 'mother', 'real_father', 'real_mother', 'parent']) {
+    const value = (family ? readScalar(family, key) : null) || readScalar(characterRecord, key)
+    if (value && !parentIds.includes(value)) parentIds.push(value)
+  }
+  if (family) {
+    for (const key of ['father', 'mother', 'real_father', 'real_mother']) {
+      for (const value of readIdList(family, key)) {
+        if (!parentIds.includes(value)) parentIds.push(value)
+      }
+    }
+  }
+
+  const primarySpouseId = (family ? readScalar(family, 'primary_spouse') : null)
+    || readScalar(characterRecord, 'primary_spouse')
+  if (primarySpouseId && !spouseIds.includes(primarySpouseId)) {
+    spouseIds.unshift(primarySpouseId)
+  }
+
+  return { parentIds, childIds, spouseIds }
+}
+
+/**
+ * Yields control to the browser event loop so progress updates can paint.
+ * @returns {Promise<void>} A promise that resolves on the next timer turn.
+ */
+function yieldToBrowser() {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, 0)
+  })
+}
+
+/**
+ * Resolves a character's house and dynasty IDs and display names.
+ * @param {string} gamestate The complete CK3 gamestate text.
+ * @param {string|null} dynastyHouseId The character's house ID.
+ * @param {Map<string|null, object>} [houseCache] Optional resolved house metadata cache.
+ * @returns {{dynastyHouseId: string|null, houseName: string|null, dynastyId: string|null, dynastyName: string|null}} House and dynasty metadata.
+ */
+function resolveHouseAndDynasty(gamestate, dynastyHouseId, houseCache) {
+  if (houseCache?.has(dynastyHouseId)) return houseCache.get(dynastyHouseId)
+  if (!dynastyHouseId) {
+    const result = { dynastyHouseId: null, houseName: null, dynastyId: null, dynastyName: null }
+    houseCache?.set(dynastyHouseId, result)
+    return result
+  }
+
+  let house = null
+  const dynasties = findBlock(gamestate, 'dynasties')
+  if (dynasties) house = findRecord(dynasties, dynastyHouseId)
+  if (!house) house = findRecord(gamestate, dynastyHouseId)
+
+  if (!house) {
+    const result = { dynastyHouseId, houseName: null, dynastyId: null, dynastyName: null }
+    houseCache?.set(dynastyHouseId, result)
+    return result
+  }
+
+  const houseName = readScalar(house, 'localized_name') || readScalar(house, 'name')
+  const dynastyId = readScalar(house, 'dynasty')
+  let dynastyName = null
+
+  if (dynastyId) {
+    let dynasty = dynasties ? findRecord(dynasties, dynastyId) : null
+    if (!dynasty) dynasty = findRecord(gamestate, dynastyId)
+    if (dynasty) {
+      dynastyName = readScalar(dynasty, 'localized_name')
+        || readScalar(dynasty, 'name')?.replace(/^dynn_/, '')
+        || null
+    }
+  }
+
+  const result = { dynastyHouseId, houseName, dynastyId, dynastyName }
+  houseCache?.set(dynastyHouseId, result)
+  return result
+}
+
+/**
+ * Normalizes one character record for profile and dynasty-directory use.
+ * @param {string} gamestate The complete CK3 gamestate text.
+ * @param {string} characterId The stable character ID.
+ * @param {string} character The character record content.
+ * @param {string|null} playerCharacterId The currently controlled character ID.
+ * @param {Map<string, {heldTitles: object[], holdings: object[]}>} titleCache Holder-indexed title cache.
+ * @param {Map<string|null, object>} houseCache Resolved house metadata cache.
+ * @param {{livingIds: Set<string>, deadIds: Set<string>}|null} statusSets Explicit character status sets.
+ * @returns {object} Normalized character profile.
+ */
+function normalizeCharacter(gamestate, characterId, character, playerCharacterId, titleCache, houseCache, statusSets = null) {
+  const firstName = readScalar(character, 'first_name')
+  const nicknameText = readScalar(character, 'nickname_text')
+  const nickname = readScalar(character, 'nickname')
+  const dynastyHouseId = readScalar(character, 'dynasty_house')
+  const traitIds = readArray(character, 'traits')
+  const traitXpAmounts = readArray(character, 'trait_xp_amounts')
+  const traits = normalizeTraits(gamestate, traitIds, traitXpAmounts)
+  const fame = normalizeCurrency(character, 'prestige', FAME_LEVELS)
+  const piety = normalizeCurrency(character, 'piety', PIETY_LEVELS)
+  const diseaseTraits = traits.filter((trait) => DISEASE_TRAITS[trait.key]).map((trait) => ({
+    ...trait,
+    name: DISEASE_TRAITS[trait.key],
+  }))
+  const injuryTraits = traits.filter((trait) => INJURY_TRAITS[trait.key]).map((trait) => ({
+    ...trait,
+    name: INJURY_TRAITS[trait.key],
+  }))
+  const ordinaryTraits = traits.filter((trait) =>
+    !DISEASE_TRAITS[trait.key] && !INJURY_TRAITS[trait.key],
+  )
+  let house = resolveHouseAndDynasty(gamestate, dynastyHouseId, houseCache)
+  const directDynastyId = readScalar(character, 'dynasty')
+  if (directDynastyId && house.dynastyHouseId) {
+    console.warn(
+      `[CK3] Character ${characterId} has direct dynasty=${directDynastyId}; house ${house.dynastyHouseId} resolved dynasty=${house.dynastyId || 'unresolved'}`,
+    )
+  }
+  if (!house.dynastyId && directDynastyId) {
+    house = { ...house, dynastyId: directDynastyId }
+  }
+  const familyLinks = readDirectFamilyLinks(character)
+  const primarySpouseId = familyLinks.spouseIds[0] || null
+  const spouseIds = familyLinks.spouseIds
+  const childIds = familyLinks.childIds
+  const parentIds = familyLinks.parentIds
+
+  const characterTitles = titleCache.get(characterId) || { heldTitles: [], holdings: [] }
+  const deadData = findBlock(character, 'dead_data')
+  const death = readScalar(character, 'death')
+    || (deadData
+      ? readScalar(deadData, 'date') || readScalar(deadData, 'death')
+      : null)
+  const isAlive = statusSets
+    ? (statusSets.livingIds.has(characterId)
+      || (!statusSets.deadIds.has(characterId) && !deadData && !death))
+    : (!deadData && !death)
+
+  return {
+    characterId,
+    isPlayer: characterId === playerCharacterId,
+    isAlive,
+    firstName: normalizeFirstName(firstName) || 'Unknown character',
+    birth: readScalar(character, 'birth'),
+    death,
+    sex: readScalar(character, 'female') === 'yes' ? 'Female' : 'Male',
+    nicknameText: nicknameText || null,
+    nickname: nickname || null,
+    ...house,
+    traitIds,
+    traits: ordinaryTraits,
+    diseaseTraits,
+    injuryTraits,
+    fame,
+    piety,
+    heldTitles: characterTitles.heldTitles,
+    holdings: characterTitles.holdings,
+    primarySpouseId,
+    spouseIds,
+    childIds,
+    parentIds,
+  }
+}
+
+/**
  * Decompresses a .ck3 archive, extracts gamestate, and creates a player recap.
  * @param {File} file The local CK3 save file selected by the user.
+ * @param {(progress: {percent: number, label: string})=>void} [onProgress] Optional import progress callback.
  * @returns {Promise<object>} Normalized player, dynasty, trait, title, and holding data.
  * @throws {Error} When the file, archive, gamestate, player, or character is unavailable.
  */
-export async function parseCk3Save(file) {
+export async function parseCk3Save(file, onProgress) {
   if (!file || typeof file.name !== 'string' || !file.name.toLowerCase().endsWith('.ck3')) {
     throw new Error('Please select a Crusader Kings III .ck3 save file.')
   }
 
+  /**
+   * Reports one named stage of save parsing.
+   * @param {number} percent Completion percentage.
+   * @param {string} label User-facing current operation.
+   * @returns {void}
+   */
+  function reportProgress(percent, label) {
+    onProgress?.({ percent: Math.max(0, Math.min(100, percent)), label })
+  }
+
+  reportProgress(5, 'Reading the selected save...')
+
   let zip
   try {
-    zip = await JSZip.loadAsync(await file.arrayBuffer())
+    zip = await JSZip.loadAsync(await file.arrayBuffer(), {
+      onUpdate(metadata) {
+        reportProgress(
+          Math.round(5 + (metadata.percent * 0.25)),
+          'Decompressing the save archive...',
+        )
+      },
+    })
   } catch {
     throw new Error('This file is not a readable CK3 archive.')
   }
@@ -341,12 +687,21 @@ export async function parseCk3Save(file) {
     throw new Error('The archive does not contain a gamestate file.')
   }
 
+  reportProgress(32, 'Extracting gamestate data...')
+
   let text
   try {
-    text = await gamestateEntry.async('string')
+    text = await gamestateEntry.async('string', (metadata) => {
+      reportProgress(
+        Math.round(32 + (metadata.percent * 0.18)),
+        'Reading character and dynasty records...',
+      )
+    })
   } catch {
     throw new Error('The gamestate file could not be decompressed.')
   }
+
+  reportProgress(52, 'Resolving the player character...')
 
   const playedCharacter = findBlock(text, 'played_character')
   const playerId = playedCharacter
@@ -368,101 +723,132 @@ export async function parseCk3Save(file) {
     throw new Error(`The player character record ${characterId} was not found.`)
   }
 
-  const firstName = readScalar(character, 'first_name')
-  const nicknameText = readScalar(character, 'nickname_text')
-  const nickname = readScalar(character, 'nickname')
-  const dynastyHouseId = readScalar(character, 'dynasty_house')
-  const traitIds = readArray(character, 'traits')
-  const traitXpAmounts = readArray(character, 'trait_xp_amounts')
-  const traits = normalizeTraits(text, traitIds, traitXpAmounts)
-  const fame = normalizeCurrency(character, 'prestige', FAME_LEVELS)
-  const piety = normalizeCurrency(character, 'piety', PIETY_LEVELS)
-  const diseaseTraits = []
-  const injuryTraits = []
-
-  for (const trait of traits) {
-    if (DISEASE_TRAITS[trait.key]) {
-      diseaseTraits.push({
-        ...trait,
-        name: DISEASE_TRAITS[trait.key],
-      })
-    }
-    if (INJURY_TRAITS[trait.key]) {
-      injuryTraits.push({
-        ...trait,
-        name: INJURY_TRAITS[trait.key],
-      })
-    }
-  }
-
-  let houseName = null
-  let dynastyId = null
-  if (dynastyHouseId) {
-    const houses = findBlock(text, 'dynasty_house')
-    const house = houses ? findRecord(houses, dynastyHouseId) : null
-    if (house) {
-      houseName = readScalar(house, 'localized_name')
-      dynastyId = readScalar(house, 'dynasty')
-    }
-  }
-
-  let dynastyName = null
-  if (dynastyId) {
-    const dynasties = findBlock(text, 'dynasties')
-    const dynasty = dynasties ? findRecord(dynasties, dynastyId) : null
-    if (dynasty) {
-      dynastyName = readScalar(dynasty, 'name')?.replace(/^dynn_/, '') || null
-    }
-  }
-
-  const landedTitles = findBlock(text, 'landed_titles')
-  const heldTitles = []
-  const holdings = []
-
-  if (landedTitles) {
-    for (const record of readTopLevelRecords(landedTitles)) {
-      const holder = readScalar(record.content, 'holder')
-      if (holder !== characterId) continue
-
-      const titleKey = readScalar(record.content, 'key') || record.key
-      const titleName = findTitleName(record.content) || titleKey
-      const holderDate = readScalar(record.content, 'date')
-      const acquisition = getTitleAcquisition(record.content, characterId, holderDate)
-      const title = {
-        id: titleKey,
-        name: titleName,
-        rank: getTitleRank(titleKey),
-        acquisitionDate: acquisition.date,
-        acquisitionCause: acquisition.cause,
-        acquisitionHolderId: acquisition.holderId,
-      }
-
-
-      if (titleKey.startsWith('b_')) {
-        holdings.push(title)
-      } else {
-        heldTitles.push(title)
-      }
-    }
-  }
-
-  const sortedHeldTitles = sortTitlesByRank(heldTitles)
-  const sortedHoldings = sortTitlesByRank(holdings)
-
-  return {
+  reportProgress(55, 'Normalizing the player character...')
+  const titleCache = buildTitleCache(text)
+  const houseCache = new Map()
+  const statusSets = findCharacterStatusSets(text)
+  const playerProfile = normalizeCharacter(
+    text,
     characterId,
-    firstName: normalizeFirstName(firstName) || 'Unknown character',
-    nicknameText: nicknameText || null,
-    nickname: nickname || null,
-    houseName,
-    dynastyName,
-    traitIds,
-    traits,
-    diseaseTraits,
-    injuryTraits,
-    fame,
-    piety,
-    heldTitles: sortedHeldTitles,
-    holdings: sortedHoldings,
+    character,
+    characterId,
+    titleCache,
+    houseCache,
+    statusSets,
+  )
+  console.log('[CK3] Player dynasty resolution', {
+    characterId,
+    houseId: playerProfile.dynastyHouseId,
+    dynastyId: playerProfile.dynastyId,
+    houseName: playerProfile.houseName,
+    dynastyName: playerProfile.dynastyName,
+  })
+  const characterRecords = findCharacterRecords(text)
+  if (!characterRecords.has(characterId)) characterRecords.set(characterId, character)
+  const dynastyProfilesById = new Map()
+  const houseIds = playerProfile.dynastyId
+    ? findHouseIdsForDynasty(text, playerProfile.dynastyId)
+    : new Set([playerProfile.dynastyHouseId].filter(Boolean))
+  if (playerProfile.dynastyHouseId) houseIds.add(playerProfile.dynastyHouseId)
+
+  reportProgress(60, 'Finding characters from the player dynasty...')
+  const characterEntries = [...characterRecords.entries()]
+  for (let startIndex = 0; startIndex < characterEntries.length; startIndex += 250) {
+    const characterChunk = characterEntries.slice(startIndex, startIndex + 250)
+    for (const [recordId, recordContent] of characterChunk) {
+      const dynastyHouseId = readScalar(recordContent, 'dynasty_house')
+      const directDynastyId = readScalar(recordContent, 'dynasty')
+      const belongsToDynasty = houseIds.has(dynastyHouseId)
+        || (playerProfile.dynastyId && directDynastyId === playerProfile.dynastyId)
+
+      if (!belongsToDynasty) continue
+
+      const normalizedCharacter = recordId === characterId
+        ? playerProfile
+        : normalizeCharacter(
+            text,
+            recordId,
+            recordContent,
+            characterId,
+            titleCache,
+            houseCache,
+            statusSets,
+          )
+      const links = readDirectFamilyLinks(recordContent)
+      normalizedCharacter.parentIds = links.parentIds
+      normalizedCharacter.childIds = links.childIds
+      normalizedCharacter.spouseIds = links.spouseIds
+      normalizedCharacter.primarySpouseId = links.spouseIds[0] || null
+      normalizedCharacter.isDynastyMember = true
+      dynastyProfilesById.set(recordId, normalizedCharacter)
+
+      console.log(
+        `[CK3] Dynasty character ${recordId}: ${normalizedCharacter.firstName}`,
+        {
+          houseId: normalizedCharacter.dynastyHouseId,
+          dynastyId: normalizedCharacter.dynastyId,
+          parents: normalizedCharacter.parentIds,
+          children: normalizedCharacter.childIds,
+          spouses: normalizedCharacter.spouseIds,
+        },
+      )
+    }
+    await yieldToBrowser()
   }
+
+  reportProgress(82, 'Resolving direct spouses...')
+  const characterDirectoryById = new Map(dynastyProfilesById)
+  for (const member of dynastyProfilesById.values()) {
+    for (const spouseId of member.spouseIds) {
+      if (characterDirectoryById.has(spouseId)) continue
+      const spouseRecord = characterRecords.get(spouseId)
+      if (!spouseRecord) continue
+
+      const spouseProfile = normalizeCharacter(
+        text,
+        spouseId,
+        spouseRecord,
+        characterId,
+        titleCache,
+        houseCache,
+        statusSets,
+      )
+      spouseProfile.isDynastyMember = false
+      characterDirectoryById.set(spouseId, spouseProfile)
+      console.log(`[CK3] Direct spouse ${spouseId}: ${spouseProfile.firstName}`)
+    }
+  }
+
+  const dynastyProfiles = [...dynastyProfilesById.values()]
+  for (const candidate of dynastyProfiles) {
+    for (const relative of dynastyProfiles) {
+      if (relative.characterId === candidate.characterId) continue
+      if (relative.childIds.includes(candidate.characterId)
+        && !candidate.parentIds.includes(relative.characterId)) {
+        candidate.parentIds.push(relative.characterId)
+      }
+    }
+  }
+
+  for (const candidate of dynastyProfiles) {
+    const siblingIds = dynastyProfiles
+      .filter((relative) => {
+        if (relative.characterId === candidate.characterId) return false
+        return candidate.parentIds.some((parentId) => relative.parentIds.includes(parentId))
+      })
+      .map((relative) => relative.characterId)
+    candidate.siblingIds = siblingIds
+  }
+
+  reportProgress(95, 'Preparing the character profile...')
+  const result = {
+    ...playerProfile,
+    dynastyId: playerProfile.dynastyId,
+    characterDirectory: [...characterDirectoryById.values()],
+    dynastyMembers: dynastyProfiles
+      .sort((left, right) => left.firstName.localeCompare(right.firstName)),
+  }
+  reportProgress(100, 'Save import complete.')
+
+  return result
 }

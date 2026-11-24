@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 /**
  * Renders an empty-aware list of string or title items.
  * @param {{items: Array<string|object>, emptyText: string}} props Component props.
@@ -116,76 +118,208 @@ function HealthList({ traits, emptyText }) {
 }
 
 /**
- * Renders the current player character's identity and recap fields.
- * @param {{profile: object}} props Normalized player profile data.
- * @returns {JSX.Element} The player character recap card.
+ * Renders a character relationship as a keyboard-accessible profile link.
+ * @param {{character: object|null, characterId: string, fallbackName?: string, onSelect: function}} props Relationship link data.
+ * @returns {JSX.Element} A character link or unavailable value.
  */
-function PlayerCharacterRecap({ profile }) {
+function CharacterLink({ character, characterId, fallbackName, onSelect }) {
+  if (!character) {
+    return <p className="empty-value">{fallbackName || `Character ${characterId} unavailable in this save.`}</p>
+  }
+
+  return (
+    <button
+      type="button"
+      className="character-link"
+      onClick={() => onSelect(character.characterId)}
+    >
+      <strong>{character.firstName}</strong>
+      {character.isPlayer && <small>Current player character</small>}
+      {character.birth && <small>{character.birth}{character.death ? ` — ${character.death}` : ''}</small>}
+    </button>
+  )
+}
+
+/**
+ * Renders a named list of direct character relationships.
+ * @param {{title: string, characterIds: string[], membersById: Map<string, object>, onSelect: function}} props Relationship section data.
+ * @returns {JSX.Element} A labeled relationship list.
+ */
+function RelationshipSection({ title, characterIds, membersById, onSelect }) {
+  return (
+    <section className="recap-section">
+      <h3>{title}</h3>
+      {characterIds.length ? (
+        <div className="relationship-grid">
+          {characterIds.map((characterId) => (
+            <CharacterLink
+              key={characterId}
+              character={membersById.get(characterId)}
+              characterId={characterId}
+              onSelect={onSelect}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className="empty-value">No {title.toLowerCase()} recorded.</p>
+      )}
+    </section>
+  )
+}
+
+/**
+ * Renders the current player character's identity and recap fields.
+ * @param {{profile: object, selectedCharacterId?: string, onSelect?: function}} props Normalized profile and optional selection callback.
+ * @returns {JSX.Element} The tabbed character recap card.
+ */
+function PlayerCharacterRecap({ profile, selectedCharacterId: requestedCharacterId, onSelect }) {
+  const [activeTab, setActiveTab] = useState('traits')
+  const [selectedCharacterId, setSelectedCharacterId] = useState(
+    requestedCharacterId || profile.characterId,
+  )
+  const dynastyMembers = Array.isArray(profile.dynastyMembers) ? profile.dynastyMembers : [profile]
+  const characterDirectory = Array.isArray(profile.characterDirectory)
+    ? profile.characterDirectory
+    : dynastyMembers
+  const membersById = new Map(characterDirectory.map((member) => [member.characterId, member]))
+  const selected = membersById.get(selectedCharacterId) || profile
+
+  /**
+   * Switches the displayed character and keeps the family tabs useful.
+   * @param {string} characterId The character ID to display.
+   * @returns {void}
+   */
+  function selectCharacter(characterId) {
+    setSelectedCharacterId(characterId)
+    setActiveTab('traits')
+    onSelect?.(characterId)
+  }
+
   return (
     <article className="recap-card">
       <header className="recap-header">
-        <p className="eyebrow">Current player character</p>
-        <h2>{profile.firstName}</h2>
-        {profile.nicknameText && <p className="nickname">&ldquo;{profile.nicknameText}&rdquo;</p>}
+        <p className="eyebrow">
+          {selected.isPlayer
+            ? 'Current player character'
+            : selected.isDynastyMember
+              ? 'Dynasty member'
+              : 'Marriage / family relation'}
+        </p>
+        <h2>{selected.firstName}</h2>
+        {selected.nicknameText && <p className="nickname">&ldquo;{selected.nicknameText}&rdquo;</p>}
       </header>
 
       <dl className="identity-grid">
         <div>
           <dt>House</dt>
-          <dd>{profile.houseName || 'Unknown house'}</dd>
+          <dd>{selected.houseName || 'Unknown house'}</dd>
         </div>
         <div>
           <dt>Dynasty</dt>
-          <dd>{profile.dynastyName || 'Unknown dynasty'}</dd>
+          <dd>{selected.dynastyName || 'Unknown dynasty'}</dd>
+        </div>
+        <div>
+          <dt>Lifespan</dt>
+          <dd>{selected.birth || 'Birth unknown'}{selected.death ? ` — ${selected.death}` : ' — Living'}</dd>
+        </div>
+        <div>
+          <dt>Sex</dt>
+          <dd>{selected.sex || 'Unknown'}</dd>
         </div>
       </dl>
 
-      <section className="recap-section" aria-labelledby="titles-heading">
-        <h3 id="titles-heading">Titles</h3>
-        <FieldList items={profile.heldTitles} emptyText="No held titles found." />
-      </section>
+      <div className="profile-tabs" role="tablist" aria-label="Character details">
+        {[
+          ['traits', 'Traits'],
+          ['titles', 'Titles & holdings'],
+          ['family', 'Family'],
+        ].map(([tabId, label]) => (
+          <button
+            key={tabId}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tabId}
+            onClick={() => setActiveTab(tabId)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-      <section className="recap-section" aria-labelledby="holdings-heading">
-        <h3 id="holdings-heading">Holdings</h3>
-        <FieldList items={profile.holdings} emptyText="No county or barony holdings found." />
-      </section>
+      {activeTab === 'traits' && (
+        <div role="tabpanel">
+          <section className="recap-section" aria-labelledby="traits-heading">
+            <h3 id="traits-heading">Traits</h3>
+            <TraitList traits={selected.traits} />
+          </section>
+          <section className="recap-section" aria-labelledby="diseases-heading">
+            <h3 id="diseases-heading">Diseases</h3>
+            <HealthList traits={selected.diseaseTraits} emptyText="No diseases found." />
+          </section>
+          <section className="recap-section" aria-labelledby="injuries-heading">
+            <h3 id="injuries-heading">Injuries</h3>
+            <HealthList traits={selected.injuryTraits} emptyText="No injuries found." />
+          </section>
+          <section className="recap-section" aria-labelledby="status-heading">
+            <h3 id="status-heading">Fame and Piety</h3>
+            <dl className="identity-grid">
+              <div>
+                <dt>Prestige / Fame</dt>
+                <dd>{selected.fame ? `${selected.fame.level || 'Unknown level'}` : 'Fame unavailable'}</dd>
+              </div>
+              <div>
+                <dt>Piety</dt>
+                <dd>{selected.piety ? `${selected.piety.level || 'Unknown level'}` : 'Piety unavailable'}</dd>
+              </div>
+            </dl>
+          </section>
+        </div>
+      )}
 
-      <section className="recap-section" aria-labelledby="traits-heading">
-        <h3 id="traits-heading">Traits</h3>
-        <TraitList traits={profile.traits} />
-      </section>
+      {activeTab === 'titles' && (
+        <div role="tabpanel">
+          <section className="recap-section" aria-labelledby="titles-heading">
+            <h3 id="titles-heading">Titles</h3>
+            <FieldList items={selected.heldTitles} emptyText="No held titles found." />
+          </section>
+          <section className="recap-section" aria-labelledby="holdings-heading">
+            <h3 id="holdings-heading">Holdings</h3>
+            <FieldList items={selected.holdings} emptyText="No county or barony holdings found." />
+          </section>
+        </div>
+      )}
 
-      <section className="recap-section" aria-labelledby="diseases-heading">
-        <h3 id="diseases-heading">Diseases</h3>
-        <HealthList traits={profile.diseaseTraits} emptyText="No diseases found." />
-      </section>
+      {activeTab === 'family' && (
+        <div role="tabpanel">
+          <RelationshipSection
+            title="Parents"
+            characterIds={selected.parentIds || []}
+            membersById={membersById}
+            onSelect={selectCharacter}
+          />
+          <RelationshipSection
+            title="Siblings"
+            characterIds={selected.siblingIds || []}
+            membersById={membersById}
+            onSelect={selectCharacter}
+          />
+          <RelationshipSection
+            title="Spouses"
+            characterIds={selected.primarySpouseId
+              ? [...new Set([selected.primarySpouseId, ...(selected.spouseIds || [])])]
+              : (selected.spouseIds || [])}
+            membersById={membersById}
+            onSelect={selectCharacter}
+          />
+          <RelationshipSection
+            title="Children"
+            characterIds={selected.childIds || []}
+            membersById={membersById}
+            onSelect={selectCharacter}
+          />
+        </div>
+      )}
 
-      <section className="recap-section" aria-labelledby="injuries-heading">
-        <h3 id="injuries-heading">Injuries</h3>
-        <HealthList traits={profile.injuryTraits} emptyText="No injuries found." />
-      </section>
-
-      <section className="recap-section" aria-labelledby="status-heading">
-        <h3 id="status-heading">Fame and Piety</h3>
-        <dl className="identity-grid">
-          <div>
-            <dt>Prestige / Fame</dt>
-            <dd>
-              {profile.fame
-                ? `${profile.fame.level || 'Unknown level'}`
-                : 'Fame unavailable'}
-            </dd>
-          </div>
-          <div>
-            <dt>Piety</dt>
-            <dd>
-              {profile.piety
-                ? `${profile.piety.level || 'Unknown level'}`
-                : 'Piety unavailable'}
-            </dd>
-          </div>
-        </dl>
-      </section>
     </article>
   )
 }

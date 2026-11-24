@@ -61,7 +61,7 @@ Levelled traits use their specific numbered icon when available, such as `bladem
 
 The parser handles every numbered or suffixed trait level generically. It also includes a complete registry for tracked lifestyle traits and legacy save XP slots, so Blademaster, Hunter, Physician, Mystic, Reveler, Herbalist, Gardener, and Poet select `_1`, `_2`, or `_3` from saved track XP. Traveler, pilgrim, and tournament traits use their corresponding generic or numbered icon families.
 
-The Traits application page lists every bundled trait name and key with searchable text. Tracked traits show their available levelled icon variants, and unavailable icon files are removed while the trait name and key remain visible.
+The character Traits tab lists traits and health traits for the selected character. Tracked traits show their available levelled icon variants, and unavailable icon files are removed while the trait name and key remain visible.
 
 Education traits are grouped by education family in the Traits catalog. Debug traits are omitted. Knight-Errant has separate Lion, Swan, and Tiger icons. Male and female Child-of-Concubine traits share one concubine icon.
 
@@ -76,4 +76,26 @@ The profile separates diseases and injuries from ordinary traits. Disease/injury
 Prestige/fame and piety values use nested `currency` and `accumulated` fields. `currency` is current; `accumulated` is total gained. Fame and Piety levels are derived from accumulated total thresholds.
 
 Trait acquisition date and event fields remain unavailable until the save structure provides a direct dated record for the character trait.
+
+## Tabbed character profile
+
+The character view uses three tabs:
+
+- Traits: ordinary traits, diseases, injuries, Fame, and Piety
+- Titles & holdings: held titles and county/barony holdings
+- Family: primary/repeated spouses, direct parents, shared-parent siblings, and children
+
+Selecting a dynasty or family member opens that member in the same tabbed profile layout. Direct family links are derived only from saved parent, spouse, and child IDs. Sibling links require an explicit shared saved parent; the dynasty directory is resolved by the character's saved `dynasty_house` and dynasty ID.
+
+Selecting any dynasty or family member opens the member's Traits tab directly. A "Select player character" action restores the player profile.
+
+## Relationship-rooted dynasty discovery
+
+The dynasty directory resolves the player character's `dynasty_house` ID, finds the house's `dynasty` ID, and collects every house record linked to that dynasty. It then adds all living or dead character records whose `dynasty_house` belongs to one of those houses.
+
+A spouse is resolved as a directly accessible family profile but is not followed into the Dynasty tab unless that spouse also belongs to a house in the player dynasty. Parent and child links do not infer marriage or dynasty membership.
+
+## Living and dead status
+
+Character status is resolved from the save's `living`, `dead_unprunable`, and `dead_prunable` collections first. `dead_data` and an explicit death date are fallbacks. Dynasty filters use this explicit status instead of assuming every character is alive.
 

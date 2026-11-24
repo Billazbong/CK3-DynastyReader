@@ -74,6 +74,7 @@ Start with only the fields required by the feature being implemented. Define exp
 - Show file name and size while processing.
 - Disable repeated imports while parsing is in progress.
 - Offer a reset action to replace or clear a loaded save.
+- Report named parsing stages with a determinate progress bar.
 
 ## UI requirements
 
