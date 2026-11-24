@@ -10,10 +10,10 @@ function DynastyBrowserPage({ profile, onSelect }) {
   const [house, setHouse] = useState('all')
   const [status, setStatus] = useState('all')
   const [sex, setSex] = useState('all')
-  const members = useMemo(
-    () => (Array.isArray(profile?.dynastyMembers) ? profile.dynastyMembers : []),
-    [profile],
-  )
+  const members = useMemo(() => {
+    if (Array.isArray(profile?.dynastyMembers)) return profile.dynastyMembers
+    return []
+  }, [profile])
   const houses = useMemo(
     () => [...new Set(members.map((member) => member.houseName).filter(Boolean))].sort(),
     [members],
@@ -104,7 +104,8 @@ function DynastyBrowserPage({ profile, onSelect }) {
             {member.birth && (
               <small>
                 {member.birth}
-                {member.death ? ` — ${member.death}` : ' — Living'}
+            {member.death && ` — ${member.death}`}
+            {!member.death && ' — Living'}
               </small>
             )}
           </button>

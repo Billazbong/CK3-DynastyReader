@@ -12,22 +12,22 @@ function FieldList({ items, emptyText }) {
     <ul className="data-list">
       {items.map((item) => (
         <li key={item.id || item}>
-          {typeof item === 'string'
-            ? item
-            : (
-                <>
-                  <div>
-                    <strong>{item.name}</strong>
-                    {item.acquisitionDate && (
-                      <small>
-                        Acquired {item.acquisitionDate}
-                        {item.acquisitionCause ? ` — ${item.acquisitionCause}` : ' — Cause unavailable'}
-                      </small>
-                    )}
-                  </div>
-                  <span>{item.rank}</span>
-                </>
-              )}
+          {typeof item === 'string' && item}
+          {typeof item !== 'string' && (
+            <>
+              <div>
+                <strong>{item.name}</strong>
+                {item.acquisitionDate && (
+                  <small>
+                    Acquired {item.acquisitionDate}
+                    {item.acquisitionCause && ` — ${item.acquisitionCause}`}
+                    {!item.acquisitionCause && ' — Cause unavailable'}
+                  </small>
+                )}
+              </div>
+              <span>{item.rank}</span>
+            </>
+          )}
         </li>
       ))}
     </ul>
@@ -52,14 +52,15 @@ function FieldHistoryList({ items, emptyText }) {
               <strong>{item.name}</strong>
               <small>
                 Acquired {item.acquisitionDate || 'date unavailable'}
-                {item.acquisitionCause ? ` — ${item.acquisitionCause}` : ' — Cause unavailable'}
+                {item.acquisitionCause && ` — ${item.acquisitionCause}`}
+                {!item.acquisitionCause && ' — Cause unavailable'}
               </small>
-              {item.isCurrent ? (
-                <small>Currently held</small>
-              ) : (
+              {item.isCurrent && <small>Currently held</small>}
+              {!item.isCurrent && (
                 <small>
                   Lost {item.lossDate || 'date unavailable'}
-                  {item.lossCause ? ` — ${item.lossCause}` : ' — Cause unavailable'}
+                  {item.lossCause && ` — ${item.lossCause}`}
+                  {!item.lossCause && ' — Cause unavailable'}
                 </small>
               )}
             </div>
@@ -142,9 +143,8 @@ function HealthList({ traits, emptyText }) {
           <div>
             <span>{trait.name}</span>
             <small>
-              {trait.acquisitionDate
-                ? `Acquired ${trait.acquisitionDate}`
-                : 'Acquisition date unavailable'}
+              {trait.acquisitionDate && `Acquired ${trait.acquisitionDate}`}
+              {!trait.acquisitionDate && 'Acquisition date unavailable'}
             </small>
           </div>
         </li>
@@ -160,7 +160,9 @@ function HealthList({ traits, emptyText }) {
  */
 function CharacterLink({ character, characterId, fallbackName, onSelect }) {
   if (!character) {
-    return <p className="empty-value">{fallbackName || `Character ${characterId} unavailable in this save.`}</p>
+    let unavailableName = `Character ${characterId} unavailable in this save.`
+    if (fallbackName) unavailableName = fallbackName
+    return <p className="empty-value">{unavailableName}</p>
   }
 
   return (
@@ -171,7 +173,12 @@ function CharacterLink({ character, characterId, fallbackName, onSelect }) {
     >
       <strong>{character.firstName}</strong>
       {character.isPlayer && <small>Current player character</small>}
-      {character.birth && <small>{character.birth}{character.death ? ` — ${character.death}` : ''}</small>}
+      {character.birth && (
+        <small>
+          {character.birth}
+          {character.death && ` — ${character.death}`}
+        </small>
+      )}
     </button>
   )
 }
@@ -185,7 +192,7 @@ function RelationshipSection({ title, characterIds, membersById, onSelect }) {
   return (
     <section className="recap-section">
       <h3>{title}</h3>
-      {characterIds.length ? (
+      {characterIds.length > 0 && (
         <div className="relationship-grid">
           {characterIds.map((characterId) => (
             <CharacterLink
@@ -196,7 +203,8 @@ function RelationshipSection({ title, characterIds, membersById, onSelect }) {
             />
           ))}
         </div>
-      ) : (
+      )}
+      {characterIds.length === 0 && (
         <p className="empty-value">No {title.toLowerCase()} recorded.</p>
       )}
     </section>
@@ -210,15 +218,26 @@ function RelationshipSection({ title, characterIds, membersById, onSelect }) {
  */
 function PlayerCharacterRecap({ profile, selectedCharacterId: requestedCharacterId, onSelect }) {
   const [activeTab, setActiveTab] = useState('traits')
-  const [selectedCharacterId, setSelectedCharacterId] = useState(
-    requestedCharacterId || profile.characterId,
-  )
-  const dynastyMembers = Array.isArray(profile.dynastyMembers) ? profile.dynastyMembers : [profile]
-  const characterDirectory = Array.isArray(profile.characterDirectory)
-    ? profile.characterDirectory
-    : dynastyMembers
+  let initialCharacterId = profile.characterId
+  if (requestedCharacterId) initialCharacterId = requestedCharacterId
+  const [selectedCharacterId, setSelectedCharacterId] = useState(initialCharacterId)
+  let dynastyMembers = [profile]
+  if (Array.isArray(profile.dynastyMembers)) dynastyMembers = profile.dynastyMembers
+  let characterDirectory = dynastyMembers
+  if (Array.isArray(profile.characterDirectory)) characterDirectory = profile.characterDirectory
   const membersById = new Map(characterDirectory.map((member) => [member.characterId, member]))
   const selected = membersById.get(selectedCharacterId) || profile
+  let relationshipLabel = 'Marriage / family relation'
+  if (selected.isPlayer) relationshipLabel = 'Current player character'
+  else if (selected.isDynastyMember) relationshipLabel = 'Dynasty member'
+  let lifespan = 'Birth unknown'
+  if (selected.birth) lifespan = selected.birth
+  if (selected.death) lifespan += ` — ${selected.death}`
+  else lifespan += ' — Living'
+  let spouseCharacterIds = selected.spouseIds || []
+  if (selected.primarySpouseId) {
+    spouseCharacterIds = [...new Set([selected.primarySpouseId, ...(selected.spouseIds || [])])]
+  }
 
   /**
    * Switches the displayed character and keeps the family tabs useful.
@@ -235,11 +254,7 @@ function PlayerCharacterRecap({ profile, selectedCharacterId: requestedCharacter
     <article className="recap-card">
       <header className="recap-header">
         <p className="eyebrow">
-          {selected.isPlayer
-            ? 'Current player character'
-            : selected.isDynastyMember
-              ? 'Dynasty member'
-              : 'Marriage / family relation'}
+          {relationshipLabel}
         </p>
         <h2>{selected.firstName}</h2>
         {selected.nicknameText && <p className="nickname">&ldquo;{selected.nicknameText}&rdquo;</p>}
@@ -256,7 +271,7 @@ function PlayerCharacterRecap({ profile, selectedCharacterId: requestedCharacter
         </div>
         <div>
           <dt>Lifespan</dt>
-          <dd>{selected.birth || 'Birth unknown'}{selected.death ? ` — ${selected.death}` : ' — Living'}</dd>
+          <dd>{lifespan}</dd>
         </div>
         <div>
           <dt>Sex</dt>
@@ -301,11 +316,13 @@ function PlayerCharacterRecap({ profile, selectedCharacterId: requestedCharacter
             <dl className="identity-grid">
               <div>
                 <dt>Prestige / Fame</dt>
-                <dd>{selected.fame ? `${selected.fame.level || 'Unknown level'}` : 'Fame unavailable'}</dd>
+                {selected.fame && <dd>{selected.fame.level || 'Unknown level'}</dd>}
+                {!selected.fame && <dd>Fame unavailable</dd>}
               </div>
               <div>
                 <dt>Piety</dt>
-                <dd>{selected.piety ? `${selected.piety.level || 'Unknown level'}` : 'Piety unavailable'}</dd>
+                {selected.piety && <dd>{selected.piety.level || 'Unknown level'}</dd>}
+                {!selected.piety && <dd>Piety unavailable</dd>}
               </div>
             </dl>
           </section>
@@ -341,6 +358,25 @@ function PlayerCharacterRecap({ profile, selectedCharacterId: requestedCharacter
 
       {activeTab === 'family' && (
         <div role="tabpanel">
+          {selected.primaryHeirId && (
+            <>
+              {selected.primaryHeirSource && (
+                <p className="empty-value">Source: {selected.primaryHeirSource}</p>
+              )}
+              <RelationshipSection
+                title="Primary heir"
+                characterIds={[selected.primaryHeirId]}
+                membersById={membersById}
+                onSelect={selectCharacter}
+              />
+            </>
+          )}
+          {!selected.primaryHeirId && (
+            <section className="recap-section">
+              <h3>Primary heir</h3>
+              <p className="empty-value">No primary heir available in this save.</p>
+            </section>
+          )}
           <RelationshipSection
             title="Parents"
             characterIds={selected.parentIds || []}
@@ -355,9 +391,7 @@ function PlayerCharacterRecap({ profile, selectedCharacterId: requestedCharacter
           />
           <RelationshipSection
             title="Spouses"
-            characterIds={selected.primarySpouseId
-              ? [...new Set([selected.primarySpouseId, ...(selected.spouseIds || [])])]
-              : (selected.spouseIds || [])}
+            characterIds={spouseCharacterIds}
             membersById={membersById}
             onSelect={selectCharacter}
           />

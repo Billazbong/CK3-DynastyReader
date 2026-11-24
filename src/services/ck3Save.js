@@ -166,7 +166,8 @@ function readTopLevelRecords(block) {
  */
 function findTitleName(titleBlock) {
   const nameData = findBlock(titleBlock, 'title_name_data')
-  return nameData ? readScalar(nameData, 'name') : null
+  if (nameData) return readScalar(nameData, 'name')
+  return null
 }
 
 /**
@@ -203,24 +204,30 @@ function normalizeFirstName(firstName) {
  */
 function normalizeTraits(gamestate, traitIds, traitXpAmounts) {
   const lookupMatch = /(?:^|\n)\s*traits_lookup=\{([^}]*)\}/m.exec(gamestate)
-  const keys = lookupMatch ? lookupMatch[1].trim().split(/\s+/).filter(Boolean) : []
+  let keys = []
+  if (lookupMatch) keys = lookupMatch[1].trim().split(/\s+/).filter(Boolean)
 
   return traitIds.map((id) => {
     const numericId = Number(id)
     const key = keys[numericId] || `trait_${id}`
     if (key.startsWith('debug_')) return null
     const levelMatch = /_(\d)$/.exec(key)
-    let level = levelMatch ? Number(levelMatch[1]) : null
+    let level = null
+    if (levelMatch) level = Number(levelMatch[1])
     let iconCandidates = []
 
     if (level !== null) {
       iconCandidates.push(`${key.replace(/_\d$/, '')}_${level}`, key)
     } else if (TRACKED_TRAIT_ICON_STEMS[key]) {
       const trackIndex = LEGACY_TRACK_XP_TRAITS.indexOf(key)
-      const xp = trackIndex >= 0 ? Number(traitXpAmounts[trackIndex]) : 0
+      let xp = 0
+      if (trackIndex >= 0) xp = Number(traitXpAmounts[trackIndex])
 
       if (trackIndex >= 0 && Number.isFinite(xp)) {
-        level = xp >= 100 ? 3 : xp >= 66 ? 2 : xp >= 33 ? 1 : null
+        level = null
+        if (xp >= 100) level = 3
+        else if (xp >= 66) level = 2
+        else if (xp >= 33) level = 1
       }
 
       const iconStem = TRACKED_TRAIT_ICON_STEMS[key]
@@ -363,10 +370,10 @@ function reconcileIntervalsAtDeath(intervals, deathDate) {
 
     if (!interval.lossDate
       || compareCk3Dates(interval.lossDate, deathDate) > 0) {
-      const inheritedCause = interval.lossCause
-        && /inherited|succession/i.test(interval.lossCause)
-        ? interval.lossCause
-        : null
+      let inheritedCause = null
+      if (interval.lossCause && /inherited|succession/i.test(interval.lossCause)) {
+        inheritedCause = interval.lossCause
+      }
       return {
         ...interval,
         lossDate: deathDate,
@@ -404,11 +411,13 @@ function buildTitleCache(gamestate) {
         const holder = readScalar(match[2], 'holder')
         const type = readScalar(match[2], 'type')
         if (holder) {
+          let cause = null
+          if (type) cause = formatTitleCause(type)
           historyEvents.push({
             date: match[1],
             holder,
             type,
-            cause: type ? formatTitleCause(type) : null,
+            cause,
           })
         }
       }
@@ -445,11 +454,12 @@ function buildTitleCache(gamestate) {
       }
 
       for (const { event: acquisition, eventIndex: acquisitionIndex } of acquisitions) {
-        const laterEvents = acquisitionIndex >= 0
-          ? historyEvents.slice(acquisitionIndex + 1)
-          : historyEvents.filter((event) =>
-              compareCk3Dates(event.date, acquisition.date) > 0,
-            )
+        let laterEvents = historyEvents.filter((event) =>
+          compareCk3Dates(event.date, acquisition.date) > 0,
+        )
+        if (acquisitionIndex >= 0) {
+          laterEvents = historyEvents.slice(acquisitionIndex + 1)
+        }
 
         let lossEvent = laterEvents.find((event) => {
           if (compareCk3Dates(event.date, acquisition.date) <= 0) return false
@@ -480,9 +490,10 @@ function buildTitleCache(gamestate) {
           })
         }
         const holderTitles = cache.get(characterId)
-        const targetHistory = titleKey.startsWith('c_') || titleKey.startsWith('b_')
-          ? holderTitles.holdingHistory
-          : holderTitles.titleHistory
+        let targetHistory = holderTitles.titleHistory
+        if (titleKey.startsWith('c_') || titleKey.startsWith('b_')) {
+          targetHistory = holderTitles.holdingHistory
+        }
         targetHistory.push(interval)
 
         if (interval.isCurrent) {
@@ -573,6 +584,160 @@ function findHouseIdsForDynasty(gamestate, dynastyId) {
 }
 
 /**
+ * Gets a stable rank weight for priority-based heir resolution.
+ * @param {string} titleKey The landed-title key or ID.
+ * @returns {number} Larger values represent more important titles.
+ */
+function getTitlePriority(titleKey) {
+  if (titleKey.startsWith('e_')) return 6
+  if (titleKey.startsWith('k_')) return 5
+  if (titleKey.startsWith('d_')) return 4
+  if (titleKey.startsWith('c_')) return 3
+  if (titleKey.startsWith('b_')) return 2
+  return 1
+}
+
+/**
+ * Resolves a character-level saved heir field.
+ * @param {string} characterRecord Character record content.
+ * @returns {string|null} A saved heir character ID or null.
+ */
+function findSavedCharacterHeir(characterRecord) {
+  for (const key of ['primary_heir', 'designated_heir', 'player_heir', 'heir']) {
+    const heirIds = readIdList(characterRecord, key)
+    if (heirIds.length > 0) return heirIds[0]
+  }
+  for (const blockName of ['alive_data', 'landed_data', 'family_data']) {
+    const nestedBlock = findBlock(characterRecord, blockName)
+    if (!nestedBlock) continue
+    for (const key of ['primary_heir', 'designated_heir', 'player_heir', 'heir']) {
+      const heirIds = readIdList(nestedBlock, key)
+      if (heirIds.length > 0) return heirIds[0]
+    }
+  }
+  return null
+}
+
+/**
+ * Resolves the highest-priority saved heir assigned to titles held by a character.
+ * @param {string} gamestate The complete CK3 gamestate text.
+ * @param {string} characterId The character whose heir is being resolved.
+ * @returns {string|null} A saved heir character ID or null.
+ */
+function findSavedTitleHeir(gamestate, characterId) {
+  const landedTitles = findBlock(gamestate, 'landed_titles')
+  if (!landedTitles) return null
+
+  const candidates = []
+  for (const record of readTopLevelRecords(landedTitles)) {
+    if (readScalar(record.content, 'holder') !== characterId) continue
+
+    const titleKey = readScalar(record.content, 'key') || record.key
+    const heirIds = readIdList(record.content, 'heir')
+    if (heirIds.length === 0) continue
+
+    candidates.push({
+      priority: getTitlePriority(titleKey),
+      heirIds,
+    })
+  }
+
+  candidates.sort((left, right) => right.priority - left.priority)
+  if (candidates.length === 0) return null
+
+  const topPriority = candidates[0].priority
+  const topCandidates = candidates
+    .filter((candidate) => candidate.priority === topPriority)
+    .flatMap((candidate) => candidate.heirIds)
+  const uniqueCandidates = [...new Set(topCandidates)]
+  if (uniqueCandidates.length === 1) return uniqueCandidates[0]
+  return uniqueCandidates[0] || null
+}
+
+/**
+ * Infers a primary heir from title transfers after a character's death.
+ * @param {string} gamestate The complete CK3 gamestate text.
+ * @param {string} characterId The deceased character ID.
+ * @param {string|null} deathDate The character's saved death date.
+ * @param {Set<string>} knownCharacterIds Character IDs available in the profile directory.
+ * @returns {string|null} An inferred successor ID or null.
+ */
+function inferHeirFromTitleSuccession(gamestate, characterId, deathDate, knownCharacterIds) {
+  if (!deathDate) return null
+
+  const landedTitles = findBlock(gamestate, 'landed_titles')
+  if (!landedTitles) return null
+
+  const successorScores = new Map()
+  for (const record of readTopLevelRecords(landedTitles)) {
+    const titleKey = readScalar(record.content, 'key') || record.key
+    const history = findBlock(record.content, 'history')
+    if (!history) continue
+
+    const eventPattern = /([0-9]+\.[0-9]+\.[0-9]+)=\{([^}]*)\}/g
+    let match
+    const historyEvents = []
+    while ((match = eventPattern.exec(history)) !== null) {
+      const holder = readScalar(match[2], 'holder')
+      if (holder) {
+        historyEvents.push({
+          date: match[1],
+          holder,
+          type: readScalar(match[2], 'type'),
+        })
+      }
+    }
+    historyEvents.sort((left, right) => compareCk3Dates(left.date, right.date))
+
+    for (let index = 0; index < historyEvents.length; index += 1) {
+      if (historyEvents[index].holder !== characterId) continue
+
+      for (let laterIndex = index + 1; laterIndex < historyEvents.length; laterIndex += 1) {
+        const successorEvent = historyEvents[laterIndex]
+        if (successorEvent.holder === characterId) continue
+        if (compareCk3Dates(successorEvent.date, deathDate) < 0) continue
+        if (!knownCharacterIds.has(successorEvent.holder)) continue
+
+        const existing = successorScores.get(successorEvent.holder) || {
+          titleCount: 0,
+          highestPriority: 0,
+        }
+        existing.titleCount += 1
+        existing.highestPriority = Math.max(
+          existing.highestPriority,
+          getTitlePriority(titleKey),
+        )
+        successorScores.set(successorEvent.holder, existing)
+        break
+      }
+    }
+  }
+
+  if (successorScores.size === 0) return null
+
+  let inferredHeirId = null
+  let inferredScore = null
+  for (const [candidateId, score] of successorScores) {
+    if (!inferredScore) {
+      inferredHeirId = candidateId
+      inferredScore = score
+      continue
+    }
+    if (score.highestPriority > inferredScore.highestPriority) {
+      inferredHeirId = candidateId
+      inferredScore = score
+      continue
+    }
+    if (score.highestPriority === inferredScore.highestPriority
+      && score.titleCount > inferredScore.titleCount) {
+      inferredHeirId = candidateId
+      inferredScore = score
+    }
+  }
+  return inferredHeirId
+}
+
+/**
  * Reads explicit and reverse-parent family links from one character record.
  * @param {string} characterRecord Character record content.
  * @returns {{parentIds: string[], childIds: string[], spouseIds: string[]}} Direct family links.
@@ -580,18 +745,19 @@ function findHouseIdsForDynasty(gamestate, dynastyId) {
 function readDirectFamilyLinks(characterRecord) {
   const family = findBlock(characterRecord, 'family_data')
   const parentIds = []
-  const childIds = family
-    ? readIdList(family, 'child')
-    : readIdList(characterRecord, 'child')
-  const spouseIds = family
-    ? [...new Set([
-        ...readIdList(family, 'spouse'),
-        ...readIdList(family, 'former_spouses'),
-      ])]
-    : readIdList(characterRecord, 'spouse')
+  let childIds = readIdList(characterRecord, 'child')
+  let spouseIds = readIdList(characterRecord, 'spouse')
+  if (family) {
+    childIds = readIdList(family, 'child')
+    spouseIds = [...new Set([
+      ...readIdList(family, 'spouse'),
+      ...readIdList(family, 'former_spouses'),
+    ])]
+  }
 
   for (const key of ['father', 'mother', 'real_father', 'real_mother', 'parent']) {
-    const value = (family ? readScalar(family, key) : null) || readScalar(characterRecord, key)
+    let value = readScalar(characterRecord, key)
+    if (family) value = readScalar(family, key) || value
     if (value && !parentIds.includes(value)) parentIds.push(value)
   }
   if (family) {
@@ -602,8 +768,8 @@ function readDirectFamilyLinks(characterRecord) {
     }
   }
 
-  const primarySpouseId = (family ? readScalar(family, 'primary_spouse') : null)
-    || readScalar(characterRecord, 'primary_spouse')
+  let primarySpouseId = readScalar(characterRecord, 'primary_spouse')
+  if (family) primarySpouseId = readScalar(family, 'primary_spouse') || primarySpouseId
   if (primarySpouseId && !spouseIds.includes(primarySpouseId)) {
     spouseIds.unshift(primarySpouseId)
   }
@@ -652,7 +818,8 @@ function resolveHouseAndDynasty(gamestate, dynastyHouseId, houseCache) {
   let dynastyName = null
 
   if (dynastyId) {
-    let dynasty = dynasties ? findRecord(dynasties, dynastyId) : null
+    let dynasty = null
+    if (dynasties) dynasty = findRecord(dynasties, dynastyId)
     if (!dynasty) dynasty = findRecord(gamestate, dynastyId)
     if (dynasty) {
       dynastyName = readScalar(dynasty, 'localized_name')
@@ -713,6 +880,15 @@ function normalizeCharacter(gamestate, characterId, character, playerCharacterId
   const spouseIds = familyLinks.spouseIds
   const childIds = familyLinks.childIds
   const parentIds = familyLinks.parentIds
+  let primaryHeirId = findSavedCharacterHeir(character)
+  let primaryHeirSource = null
+  if (primaryHeirId) primaryHeirSource = 'save registry'
+
+  const savedTitleHeirId = findSavedTitleHeir(gamestate, characterId)
+  if (!primaryHeirId && savedTitleHeirId) {
+    primaryHeirId = savedTitleHeirId
+    primaryHeirSource = 'title registry'
+  }
 
   const characterTitles = titleCache.get(characterId) || {
     heldTitles: [],
@@ -721,20 +897,23 @@ function normalizeCharacter(gamestate, characterId, character, playerCharacterId
     holdingHistory: [],
   }
   const deadData = findBlock(character, 'dead_data')
-  const death = readScalar(character, 'death')
-    || (deadData
-      ? readScalar(deadData, 'date') || readScalar(deadData, 'death')
-      : null)
+  let death = readScalar(character, 'death')
+  if (!death && deadData) {
+    death = readScalar(deadData, 'date') || readScalar(deadData, 'death')
+  }
   const titleHistory = reconcileIntervalsAtDeath(characterTitles.titleHistory, death)
   const holdingHistory = reconcileIntervalsAtDeath(characterTitles.holdingHistory, death)
   const heldTitles = reconcileIntervalsAtDeath(characterTitles.heldTitles, death)
     .filter((interval) => interval.isCurrent)
   const holdings = reconcileIntervalsAtDeath(characterTitles.holdings, death)
     .filter((interval) => interval.isCurrent)
-  const isAlive = statusSets
-    ? (statusSets.livingIds.has(characterId)
-      || (!statusSets.deadIds.has(characterId) && !deadData && !death))
-    : (!deadData && !death)
+  let isAlive = !deadData && !death
+  if (statusSets) {
+    isAlive = statusSets.livingIds.has(characterId)
+      || (!statusSets.deadIds.has(characterId) && !deadData && !death)
+  }
+  let sex = 'Male'
+  if (readScalar(character, 'female') === 'yes') sex = 'Female'
 
   return {
     characterId,
@@ -743,7 +922,7 @@ function normalizeCharacter(gamestate, characterId, character, playerCharacterId
     firstName: normalizeFirstName(firstName) || 'Unknown character',
     birth: readScalar(character, 'birth'),
     death,
-    sex: readScalar(character, 'female') === 'yes' ? 'Female' : 'Male',
+    sex,
     nicknameText: nicknameText || null,
     nickname: nickname || null,
     ...house,
@@ -761,6 +940,8 @@ function normalizeCharacter(gamestate, characterId, character, playerCharacterId
     spouseIds,
     childIds,
     parentIds,
+    primaryHeirId,
+    primaryHeirSource,
   }
 }
 
@@ -824,11 +1005,11 @@ export async function parseCk3Save(file, onProgress) {
   reportProgress(52, 'Resolving the player character...')
 
   const playedCharacter = findBlock(text, 'played_character')
-  const playerId = playedCharacter
-    ? readScalar(playedCharacter, 'character')
-    : null
+  let playerId = null
+  if (playedCharacter) playerId = readScalar(playedCharacter, 'character')
   const playerBlock = findBlock(text, 'player')
-  const fallbackPlayerId = playerBlock ? readScalar(playerBlock, 'owner') : null
+  let fallbackPlayerId = null
+  if (playerBlock) fallbackPlayerId = readScalar(playerBlock, 'owner')
   const characterId = playerId || fallbackPlayerId
 
   if (!characterId) {
@@ -837,7 +1018,8 @@ export async function parseCk3Save(file, onProgress) {
 
   const characters = findBlock(text, 'characters')
   const living = findBlock(text, 'living')
-  let character = characters ? findRecord(characters, characterId) : null
+  let character = null
+  if (characters) character = findRecord(characters, characterId)
   if (!character && living) character = findRecord(living, characterId)
   if (!character) {
     throw new Error(`The player character record ${characterId} was not found.`)
@@ -866,9 +1048,10 @@ export async function parseCk3Save(file, onProgress) {
   const characterRecords = findCharacterRecords(text)
   if (!characterRecords.has(characterId)) characterRecords.set(characterId, character)
   const dynastyProfilesById = new Map()
-  const houseIds = playerProfile.dynastyId
-    ? findHouseIdsForDynasty(text, playerProfile.dynastyId)
-    : new Set([playerProfile.dynastyHouseId].filter(Boolean))
+  let houseIds = new Set([playerProfile.dynastyHouseId].filter(Boolean))
+  if (playerProfile.dynastyId) {
+    houseIds = findHouseIdsForDynasty(text, playerProfile.dynastyId)
+  }
   if (playerProfile.dynastyHouseId) houseIds.add(playerProfile.dynastyHouseId)
 
   reportProgress(60, 'Finding characters from the player dynasty...')
@@ -883,17 +1066,16 @@ export async function parseCk3Save(file, onProgress) {
 
       if (!belongsToDynasty) continue
 
-      const normalizedCharacter = recordId === characterId
-        ? playerProfile
-        : normalizeCharacter(
-            text,
-            recordId,
-            recordContent,
-            characterId,
-            titleCache,
-            houseCache,
-            statusSets,
-          )
+      let normalizedCharacter = normalizeCharacter(
+        text,
+        recordId,
+        recordContent,
+        characterId,
+        titleCache,
+        houseCache,
+        statusSets,
+      )
+      if (recordId === characterId) normalizedCharacter = playerProfile
       const links = readDirectFamilyLinks(recordContent)
       normalizedCharacter.parentIds = links.parentIds
       normalizedCharacter.childIds = links.childIds
@@ -940,7 +1122,7 @@ export async function parseCk3Save(file, onProgress) {
   }
 
   const dynastyProfiles = [...dynastyProfilesById.values()]
-  for (const candidate of dynastyProfiles) {
+  for (const candidate of characterDirectoryById.values()) {
     for (const relative of dynastyProfiles) {
       if (relative.characterId === candidate.characterId) continue
       if (relative.childIds.includes(candidate.characterId)
@@ -958,6 +1140,23 @@ export async function parseCk3Save(file, onProgress) {
       })
       .map((relative) => relative.characterId)
     candidate.siblingIds = siblingIds
+  }
+
+  const knownCharacterIds = new Set(characterDirectoryById.keys())
+  for (const candidate of characterDirectoryById.values()) {
+    if (candidate.primaryHeirId) continue
+    if (!candidate.death) continue
+
+    const inferredHeirId = inferHeirFromTitleSuccession(
+      text,
+      candidate.characterId,
+      candidate.death,
+      knownCharacterIds,
+    )
+    if (inferredHeirId) {
+      candidate.primaryHeirId = inferredHeirId
+      candidate.primaryHeirSource = 'inferred from title succession'
+    }
   }
 
   reportProgress(95, 'Preparing the character profile...')

@@ -83,7 +83,9 @@ The character view uses three tabs:
 
 - Traits: ordinary traits, diseases, injuries, Fame, and Piety
 - Titles & holdings: held titles and county/barony holdings
-- Family: primary/repeated spouses, direct parents, shared-parent siblings, and children
+- Family: primary/repeated spouses, direct parents, shared-parent siblings, children, and primary heir
+
+The Family tab also identifies a primary heir. The parser first uses saved character or landed-title heir IDs. If no saved heir registry exists for a deceased character, it infers one from title ownership changes at or after the saved death date, prioritizing the most important transferred title and then the number of titles transferred. Inferred relationships are labeled separately from saved heir records.
 
 Selecting a dynasty or family member opens that member in the same tabbed profile layout. Direct family links are derived only from saved parent, spouse, and child IDs. Sibling links require an explicit shared saved parent; the dynasty directory is resolved by the character's saved `dynasty_house` and dynasty ID.
 

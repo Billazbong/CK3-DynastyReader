@@ -31,6 +31,13 @@ export default [
       ...react.configs['jsx-runtime'].rules,
       ...reactHooks.configs.recommended.rules,
       'react/prop-types': 'off',
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'ConditionalExpression',
+          message: 'Use if statements or named helpers instead of ternary operators.',
+        },
+      ],
       'react-refresh/only-export-components': [
         'warn',
         { allowConstantExport: true },

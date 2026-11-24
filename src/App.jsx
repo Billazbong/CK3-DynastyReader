@@ -10,6 +10,39 @@ import {
 } from './services/localSaveLibrary.js'
 
 /**
+ * Gets the initial application page from the URL hash.
+ * @returns {'library'|'dynasty'|'profile'} The initial page ID.
+ */
+function getInitialPage() {
+  if (window.location.hash === '#library') return 'library'
+  if (window.location.hash === '#dynasty') return 'dynasty'
+  return 'profile'
+}
+
+/**
+ * Converts an unknown caught error into a readable message.
+ * @param {unknown} caughtError The caught value.
+ * @param {string} fallback The fallback user-facing message.
+ * @returns {string} A readable error message.
+ */
+function getErrorMessage(caughtError, fallback) {
+  if (caughtError instanceof Error) return caughtError.message
+  return fallback
+}
+
+/**
+ * Formats a file size for the current save import status.
+ * @param {number} fileSize Size in bytes.
+ * @returns {string} A compact display size.
+ */
+function formatFileSize(fileSize) {
+  if (fileSize >= 1024 * 1024) {
+    return `${(fileSize / 1024 / 1024).toFixed(1)} MB`
+  }
+  return `${Math.max(1, Math.ceil(fileSize / 1024))} KB`
+}
+
+/**
  * Top-level application component for save import and player recap state.
  * @returns {JSX.Element} The Dynasty Chronicle application.
  */
@@ -25,13 +58,7 @@ function App() {
   const [importProgress, setImportProgress] = useState({ percent: 0, label: '' })
   const [selectedCharacterId, setSelectedCharacterId] = useState(null)
   const [headerHidden, setHeaderHidden] = useState(false)
-  const [page, setPage] = useState(
-    window.location.hash === '#library'
-      ? 'library'
-      : window.location.hash === '#dynasty'
-        ? 'dynasty'
-        : 'profile',
-  )
+  const [page, setPage] = useState(getInitialPage)
 
   useEffect(() => {
     /**
@@ -83,7 +110,7 @@ function App() {
           setStatus('success')
         }
       } catch (caughtError) {
-        setError(caughtError instanceof Error ? caughtError.message : 'The local save library is unavailable.')
+        setError(getErrorMessage(caughtError, 'The local save library is unavailable.'))
       } finally {
         setLibraryLoaded(true)
       }
@@ -120,7 +147,7 @@ function App() {
       setImportProgress({ percent: 100, label: 'Save import complete.' })
       setStatus('success')
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : 'The save could not be imported.')
+      setError(getErrorMessage(caughtError, 'The save could not be imported.'))
       setStatus('error')
     } finally {
       event.target.value = ''
@@ -206,11 +233,34 @@ function App() {
 
   const hasLoadedSave = Boolean(profile)
   const hasSavedLibraryState = libraryLoaded && localSaves.length > 0
+  let headerClassName = 'app-header'
+  if (headerHidden) headerClassName += ' app-header-hidden'
+
+  let importButtonClassName = 'import-button'
+  if (hasLoadedSave || hasSavedLibraryState) {
+    importButtonClassName += ' import-button-fixed'
+  } else {
+    importButtonClassName += ' import-button-empty'
+  }
+
+  let importButtonLabel = 'Import .ck3 save'
+  if (status === 'loading') {
+    importButtonLabel = 'Reading save...'
+  } else if (hasLoadedSave || hasSavedLibraryState) {
+    importButtonLabel = 'Import save'
+  }
+
+  let profileAriaCurrent
+  if (page === 'profile') profileAriaCurrent = 'page'
+  let dynastyAriaCurrent
+  if (page === 'dynasty') dynastyAriaCurrent = 'page'
+  let libraryAriaCurrent
+  if (page === 'library') libraryAriaCurrent = 'page'
 
   return (
     <main className="app-shell">
       <div className="app-content">
-        <header className={`app-header${headerHidden ? ' app-header-hidden' : ''}`}>
+        <header className={headerClassName}>
           <div className="app-header-title">
             <p className="eyebrow">Crusader Kings III companion</p>
             <h1>Dynasty Chronicle</h1>
@@ -218,15 +268,15 @@ function App() {
 
           <nav className="app-navigation" aria-label="Application pages">
             <div className="app-navigation-primary">
-              <a href="#profile" aria-current={page === 'profile' ? 'page' : undefined}>
+              <a href="#profile" aria-current={profileAriaCurrent}>
                 Character
               </a>
-              <a href="#dynasty" aria-current={page === 'dynasty' ? 'page' : undefined}>
+              <a href="#dynasty" aria-current={dynastyAriaCurrent}>
                 Dynasty
               </a>
             </div>
             <div className="app-navigation-secondary">
-              <a href="#library" aria-current={page === 'library' ? 'page' : undefined}>
+              <a href="#library" aria-current={libraryAriaCurrent}>
                 Saves
               </a>
             </div>
@@ -243,16 +293,12 @@ function App() {
 
           {libraryLoaded && (
             <button
-              className={`import-button ${hasLoadedSave || hasSavedLibraryState ? 'import-button-fixed' : 'import-button-empty'}`}
+              className={importButtonClassName}
               type="button"
               onClick={chooseFile}
               disabled={status === 'loading'}
             >
-              {status === 'loading'
-                ? 'Reading save...'
-                : hasLoadedSave || hasSavedLibraryState
-                  ? 'Import save'
-                  : 'Import .ck3 save'}
+              {importButtonLabel}
             </button>
           )}
 
@@ -267,16 +313,18 @@ function App() {
           )}
         </header>
 
-        {page === 'dynasty' ? (
-          profile
-            ? (
-                <DynastyBrowserPage
-                  profile={profile}
-                  onSelect={openCharacter}
-                />
-              )
-            : <p className="empty-value">Import a save to browse its dynasty.</p>
-        ) : page === 'library' ? (
+        {page === 'dynasty' && (
+          <>
+            {profile && (
+              <DynastyBrowserPage
+                profile={profile}
+                onSelect={openCharacter}
+              />
+            )}
+            {!profile && <p className="empty-value">Import a save to browse its dynasty.</p>}
+          </>
+        )}
+        {page === 'library' && (
           <section className="save-library" aria-labelledby="save-library-title">
             <header className="library-header">
               <p className="eyebrow">This browser only</p>
@@ -286,9 +334,10 @@ function App() {
               </p>
             </header>
 
-            {localSaves.length === 0 ? (
+            {localSaves.length === 0 && (
               <p className="empty-value">No saves stored locally.</p>
-            ) : (
+            )}
+            {localSaves.length > 0 && (
               <>
                 <div className="library-actions">
                   <button type="button" className="secondary-button" onClick={removeAllStoredSaves}>
@@ -315,7 +364,8 @@ function App() {
               </>
             )}
           </section>
-        ) : (
+        )}
+        {page !== 'dynasty' && page !== 'library' && (
           <>
 
         {status === 'loading' && (
@@ -330,9 +380,7 @@ function App() {
               aria-label={importProgress.label}
             />
             <p className="status-message">
-              {fileName} · {fileSize >= 1024 * 1024
-                ? `${(fileSize / 1024 / 1024).toFixed(1)} MB`
-                : `${Math.max(1, Math.ceil(fileSize / 1024))} KB`}
+              {fileName} · {formatFileSize(fileSize)}
             </p>
           </div>
         )}
