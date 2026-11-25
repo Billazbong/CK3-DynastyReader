@@ -83,13 +83,17 @@ The character view uses three tabs:
 
 - Traits: ordinary traits, diseases, injuries, Fame, and Piety
 - Titles & holdings: held titles and county/barony holdings
-- Family: primary/repeated spouses, direct parents, shared-parent siblings, children, and primary heir
+- Family: a relationship graph around the selected character, including direct parents, shared-parent siblings, spouses, children, and primary heir
 
-The Family tab also identifies a primary heir. The parser first uses saved character or landed-title heir IDs. If no saved heir registry exists for a deceased character, it infers one from title ownership changes at or after the saved death date, prioritizing the most important transferred title and then the number of titles transferred. Inferred relationships are labeled separately from saved heir records.
+The Family tab identifies a primary heir. The parser first uses saved character or landed-title heir IDs. If no saved heir registry exists for a deceased character, it infers one from title ownership changes at or after the saved death date, prioritizing the most important transferred title and then the number of titles transferred. Inferred relationships are labeled separately from saved heir records.
+
+The full-width family graph orders siblings with the selected character in one row by saved birth date, shows one parent in the selected character's dynasty line above that row when known, compact non-expandable spouse nodes beside the selected character and expanded siblings or children, and the selected character's children in a birth-ordered row centered below them. Expanding a parent reveals that parent's dynasty-line parent above and siblings beside them; expanding a child or sibling reveals that character's children centered below, with the spouse beside the character. Branches reflow surrounding nodes to avoid overlap, and spouse columns reserve space for larger spouse groups. Graph expansion keeps the Family tab open and highlights the expanded character. A separate action opens that character in their profile. The graph supports mouse/pen click-and-drag panning, touch scrolling, and controls to move left/right and recenter the selected character.
 
 Selecting a dynasty or family member opens that member in the same tabbed profile layout. Direct family links are derived only from saved parent, spouse, and child IDs. Sibling links require an explicit shared saved parent; the dynasty directory is resolved by the character's saved `dynasty_house` and dynasty ID.
 
 Selecting any dynasty or family member opens the member's Traits tab directly. A "Select player character" action restores the player profile.
+
+The Dynasty directory search matches a character's saved character ID as well as their name and nickname, when those values are available.
 
 ## Relationship-rooted dynasty discovery
 

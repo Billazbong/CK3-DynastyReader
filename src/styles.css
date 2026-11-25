@@ -496,6 +496,604 @@ a:focus-visible {
   font-weight: 400;
 }
 
+.app-shell:has(.family-tree) {
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.app-content:has(.family-tree) {
+  width: 100%;
+  max-width: none;
+}
+
+.recap-card:has(.family-tree) {
+  padding: clamp(16px, 2vw, 28px);
+}
+
+.family-tree {
+  width: 100%;
+  margin-top: 28px;
+  text-align: left;
+}
+
+.family-tree-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.family-tree-header h3 {
+  margin: 0;
+  color: var(--gold);
+  font-family: Arial, sans-serif;
+  font-size: 0.9rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.family-tree-header p,
+.family-tree-empty {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-family: Arial, sans-serif;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.family-tree-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 14px;
+  margin: 0;
+  padding: 0;
+  color: var(--muted);
+  font-family: Arial, sans-serif;
+  font-size: 0.72rem;
+  list-style: none;
+}
+
+.family-tree-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.family-tree-legend-mark {
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--gold-bright);
+  border-radius: 50%;
+}
+
+.family-tree-legend-selected,
+.family-tree-legend-expanded {
+  background: var(--gold-bright);
+}
+
+.family-tree-legend-expanded {
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+
+.family-tree-legend-living {
+  border-color: #9dc79d;
+  background: #527b58;
+}
+
+.family-tree-legend-deceased {
+  border-color: #9a8b8b;
+  background: #50434b;
+}
+
+.family-tree-legend-spouse {
+  border-color: #b394c8;
+  border-radius: 1px;
+  background: #765a86;
+}
+
+.family-tree-navigation {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 14px 0 8px;
+}
+
+.family-tree-navigation button {
+  min-height: 38px;
+  padding: 7px 12px;
+  font-size: 0.75rem;
+}
+
+.family-tree-viewport {
+  max-height: min(78vh, 960px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(226, 183, 93, 0.07), transparent 42rem),
+    linear-gradient(145deg, rgba(20, 16, 29, 0.94), rgba(50, 34, 50, 0.82));
+  scrollbar-color: rgba(226, 183, 93, 0.65) rgba(16, 13, 24, 0.7);
+  scrollbar-width: thin;
+  touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
+  cursor: grab;
+}
+
+.family-tree-viewport.family-tree-dragging,
+.family-tree-viewport.family-tree-dragging * {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.family-tree-viewport:focus-visible {
+  outline: 3px solid rgba(255, 215, 122, 0.78);
+  outline-offset: 3px;
+}
+
+.family-tree-canvas {
+  position: relative;
+  min-width: max(100%, var(--family-tree-min-width, 960px));
+  padding: 28px clamp(20px, 3vw, 48px) 48px;
+}
+
+.family-tree-generation {
+  position: relative;
+  width: 100%;
+  text-align: center;
+}
+
+.family-tree-generation > h4,
+.family-tree-expanded-group > h4,
+.family-tree-direct-children > h4,
+.family-tree-other-parents > h5 {
+  margin: 0;
+  color: var(--gold);
+  font-family: Arial, sans-serif;
+  font-size: 0.7rem;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.family-tree-parent-generation {
+  padding-bottom: 32px;
+}
+
+.family-tree-parent-pair {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  align-items: end;
+  justify-content: center;
+  gap: clamp(32px, 8vw, 140px);
+  width: max-content;
+  margin: 0 auto;
+  padding: 24px 0 18px;
+  list-style: none;
+}
+
+.family-tree-parent-pair::before {
+  position: absolute;
+  right: 25%;
+  bottom: 17px;
+  left: 25%;
+  border-top: 1px solid rgba(226, 183, 93, 0.45);
+  content: '';
+}
+
+.family-tree-parent-pair::after {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  height: 18px;
+  border-left: 1px solid rgba(226, 183, 93, 0.45);
+  content: '';
+}
+
+.family-tree-parent-pair > .family-tree-cohort-item,
+.family-tree-parent-empty {
+  position: relative;
+  width: auto;
+  min-width: 0;
+  padding-top: 0;
+}
+
+.family-tree-parent-pair:has(.family-tree-ancestor-branch),
+.family-tree-parent-pair:has(.family-tree-expanded-branch) {
+  grid-template-columns: repeat(2, max-content);
+  width: max-content;
+}
+
+.family-tree-parent-pair-single,
+.family-tree-parent-pair-single:has(.family-tree-ancestor-branch),
+.family-tree-parent-pair-single:has(.family-tree-expanded-branch) {
+  grid-template-columns: max-content;
+}
+
+.family-tree-parent-pair-single::before {
+  display: none;
+}
+
+.family-tree-parent-pair-single,
+.family-tree-parent-pair-single:has(.family-tree-ancestor-branch),
+.family-tree-parent-pair-single:has(.family-tree-expanded-branch) {
+  grid-template-columns: max-content;
+}
+
+.family-tree-parent-pair-single::before {
+  display: none;
+}
+
+.family-tree-parent-node-body {
+  display: grid;
+  grid-template-columns: max-content max-content;
+  align-items: end;
+  gap: 18px;
+  width: max-content;
+}
+
+.family-tree-parent-node-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.family-tree-parent-sibling-branch {
+  align-self: end;
+}
+
+.family-tree-parent-pair > .family-tree-cohort-item::before {
+  display: none;
+}
+
+.family-tree-parent-empty {
+  display: grid;
+  min-height: 110px;
+  align-content: center;
+  border: 1px dashed rgba(226, 183, 93, 0.26);
+  color: var(--muted);
+  font-family: Arial, sans-serif;
+  font-size: 0.78rem;
+}
+
+.family-tree-other-parents {
+  margin: 10px auto 0;
+}
+
+.family-tree-other-parents h5 {
+  margin-bottom: 6px;
+}
+
+.family-tree-sibling-generation {
+  padding-top: 20px;
+  border-top: 1px solid rgba(226, 183, 93, 0.3);
+}
+
+.family-tree-cohort {
+  position: relative;
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 28px;
+  margin: 0;
+  padding: 28px 20px 0;
+  list-style: none;
+}
+
+.family-tree-cohort::before {
+  position: absolute;
+  top: 0;
+  right: 100px;
+  left: 100px;
+  border-top: 1px solid rgba(226, 183, 93, 0.38);
+  content: '';
+}
+
+.family-tree-cohort-item {
+  position: relative;
+  flex: 0 0 188px;
+  width: 188px;
+  min-width: 188px;
+  padding-top: 14px;
+}
+
+.family-tree-cohort-item::before {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  height: 14px;
+  border-left: 1px solid rgba(226, 183, 93, 0.45);
+  content: '';
+}
+
+.family-tree-node-selected {
+  flex-basis: max-content;
+  width: max-content;
+}
+
+.family-tree-cohort-item:has(.family-tree-expanded-branch),
+.family-tree-cohort-item:has(.family-tree-direct-children),
+.family-tree-cohort-item:has(.family-tree-ancestor-branch),
+.family-tree-cohort-item:has(.family-tree-inline-spouses) {
+  flex-basis: max-content;
+  width: max-content;
+}
+
+.family-tree-node-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 188px minmax(0, 1fr);
+  column-gap: 8px;
+  width: max-content;
+}
+
+.family-tree-node-body-has-spouses {
+  grid-template-columns: minmax(130px, 1fr) 188px minmax(130px, 1fr);
+}
+
+.family-tree-node-body > .family-tree-ancestor-branch,
+.family-tree-node-body > .family-tree-expanded-branch,
+.family-tree-node-body > .family-tree-direct-children,
+.family-tree-node-body > .family-tree-person-group {
+  grid-column: 1 / -1;
+  justify-self: center;
+}
+
+.family-tree-person-group {
+  display: grid;
+  grid-template-columns: inherit;
+  column-gap: inherit;
+  align-items: start;
+  width: 100%;
+}
+
+.family-tree-person-group > .family-tree-card {
+  grid-column: 2;
+}
+
+.family-tree-card,
+.family-tree-spouse-card {
+  display: flex;
+  width: 188px;
+  min-height: 110px;
+  flex-direction: column;
+  align-items: stretch;
+  overflow-wrap: anywhere;
+  border: 1px solid rgba(226, 183, 93, 0.3);
+  border-left: 3px solid #887b85;
+  border-radius: 3px;
+  background: linear-gradient(145deg, rgba(75, 58, 68, 0.88), rgba(35, 29, 41, 0.96));
+  text-align: left;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.family-tree-card-living {
+  border-left-color: #6e9a72;
+}
+
+.family-tree-card-deceased {
+  border-left-color: #887b85;
+  background: linear-gradient(145deg, rgba(66, 54, 64, 0.88), rgba(34, 29, 40, 0.96));
+}
+
+.family-tree-card-dynasty {
+  border-top-color: var(--gold);
+}
+
+.family-tree-node-selected > .family-tree-node-body > .family-tree-person-group > .family-tree-card {
+  border-color: var(--gold-bright);
+  box-shadow: 0 0 0 2px rgba(255, 215, 122, 0.2);
+}
+
+.family-tree-node-active > .family-tree-node-body > .family-tree-person-group > .family-tree-card {
+  border-color: #f0a3b4;
+  box-shadow: 0 0 0 2px rgba(240, 163, 180, 0.2);
+}
+
+.family-tree-node-role {
+  display: block;
+  margin: 0;
+  padding: 8px 10px 0;
+  color: var(--gold);
+  font-family: Arial, sans-serif;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.family-tree-expand,
+.family-tree-person {
+  display: grid;
+  width: 100%;
+  min-height: 58px;
+  justify-items: start;
+  align-content: center;
+  gap: 5px;
+  padding: 6px 10px 10px;
+  border: 0;
+  border-radius: 0;
+  color: var(--ink);
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+}
+
+.family-tree-expand:hover {
+  border-color: transparent;
+  background: rgba(255, 215, 122, 0.08);
+  transform: none;
+}
+
+.family-tree-expand small,
+.family-tree-person small,
+.family-tree-profile-action,
+.family-tree-unavailable,
+.family-tree-expand-hint,
+.family-tree-spouse-card small {
+  color: var(--muted);
+  font-family: Arial, sans-serif;
+  font-size: 0.68rem;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.family-tree-expand-hint {
+  color: var(--gold);
+}
+
+.family-tree-profile-action {
+  align-self: flex-start;
+  min-height: 32px;
+  margin: auto 8px 8px;
+  padding: 5px 8px;
+  border-color: rgba(226, 183, 93, 0.3);
+  color: var(--ink);
+  font-size: 0.68rem;
+}
+
+.family-tree-unavailable {
+  margin: 0 8px 8px;
+}
+
+.family-tree-inline-spouses {
+  grid-column: 3;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  justify-self: start;
+}
+
+.family-tree-spouse-card {
+  width: 122px;
+  min-height: 82px;
+  border-left-color: #9379a2;
+  background: linear-gradient(145deg, rgba(74, 54, 82, 0.9), rgba(35, 29, 41, 0.96));
+}
+
+.family-tree-spouse-card .family-tree-node-role {
+  color: #d3b6e4;
+  font-size: 0.55rem;
+}
+
+.family-tree-spouse-card strong,
+.family-tree-spouse-card small {
+  margin: 4px 7px 0;
+}
+
+.family-tree-spouse-card button {
+  align-self: flex-start;
+  min-height: 28px;
+  margin: auto 6px 6px;
+  padding: 4px 6px;
+  font-size: 0.62rem;
+}
+
+.family-tree-expanded-branch,
+.family-tree-direct-children {
+  position: relative;
+  width: max-content;
+  margin: 28px auto 0;
+  padding-top: 14px;
+  border-top: 1px solid rgba(226, 183, 93, 0.28);
+  text-align: center;
+}
+
+.family-tree-ancestor-branch {
+  position: relative;
+  width: max-content;
+  margin: 0 auto 28px;
+  padding-bottom: 14px;
+  text-align: center;
+}
+
+.family-tree-ancestor-branch::after {
+  position: absolute;
+  bottom: -28px;
+  left: 50%;
+  height: 28px;
+  border-left: 1px solid rgba(226, 183, 93, 0.45);
+  content: '';
+}
+
+.family-tree-expanded-branch::before,
+.family-tree-direct-children::before {
+  position: absolute;
+  top: -28px;
+  left: 50%;
+  height: 28px;
+  border-left: 1px solid rgba(226, 183, 93, 0.45);
+  content: '';
+}
+
+.family-tree-expanded-group + .family-tree-expanded-group {
+  margin-top: 22px;
+}
+
+.family-tree-expanded-group > h4,
+.family-tree-direct-children > h4 {
+  margin: 0;
+  color: var(--gold);
+  font-family: Arial, sans-serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.family-tree-branch-cohort {
+  gap: 18px;
+  padding-top: 22px;
+}
+
+.family-tree-branch-cohort::before {
+  right: 94px;
+  left: 94px;
+}
+
+.family-tree-branch-cohort > .family-tree-cohort-item {
+  flex-basis: 164px;
+  width: 164px;
+  min-width: 164px;
+}
+
+.family-tree-branch-cohort > .family-tree-cohort-item:has(.family-tree-expanded-branch),
+.family-tree-branch-cohort > .family-tree-cohort-item:has(.family-tree-direct-children),
+.family-tree-branch-cohort > .family-tree-cohort-item:has(.family-tree-ancestor-branch),
+.family-tree-branch-cohort > .family-tree-cohort-item:has(.family-tree-inline-spouses) {
+  flex-basis: max-content;
+  width: max-content;
+}
+
+.family-tree-branch-cohort .family-tree-card {
+  width: 164px;
+  min-height: 100px;
+}
+
+.family-tree-branch-cohort .family-tree-person-group > .family-tree-card {
+  justify-self: center;
+}
+
+.family-tree-spouse-item {
+  padding-top: 0;
+}
+
+.family-tree-spouse-item::before {
+  display: none;
+}
+
+.family-tree-empty {
+  max-width: 220px;
+  margin: 8px auto 0;
+}
+
+.family-tree-branch-cohort .family-tree-spouse-card {
+  width: 122px;
+}
+
 .character-link[aria-current="true"] {
   border-left-color: var(--gold-bright);
   background: rgba(226, 183, 93, 0.14);
@@ -651,6 +1249,66 @@ a:focus-visible {
 
   .profile-tabs {
     grid-template-columns: 1fr;
+  }
+
+  .family-tree-header {
+    flex-direction: column;
+  }
+
+  .family-tree-legend {
+    justify-content: flex-start;
+  }
+
+  .family-tree-navigation {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .family-tree-navigation button {
+    min-width: 0;
+    padding: 6px;
+    font-size: 0.66rem;
+  }
+
+  .family-tree-viewport {
+    height: min(68dvh, 720px);
+    min-height: 360px;
+    max-height: none;
+  }
+
+  .family-tree-canvas {
+    padding: 24px 18px 36px;
+  }
+
+  .family-tree-parent-pair {
+    grid-template-columns: repeat(2, 188px);
+    gap: 30px;
+    width: 100%;
+  }
+
+  .family-tree-parent-pair:has(.family-tree-ancestor-branch),
+  .family-tree-parent-pair:has(.family-tree-expanded-branch) {
+    grid-template-columns: repeat(2, max-content);
+    width: max-content;
+  }
+
+  .family-tree-cohort {
+    justify-content: flex-start;
+  }
+
+  .family-tree-parent-pair::before {
+    right: calc(50% - 109px);
+    left: calc(50% - 109px);
+  }
+
+  .family-tree-parent-pair::after {
+    left: 50%;
+  }
+
+  .family-tree-expanded-group,
+  .family-tree-direct-children {
+    padding-right: 4px;
+    padding-left: 4px;
   }
 
   .save-library-list li {

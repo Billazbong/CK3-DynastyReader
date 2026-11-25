@@ -25,6 +25,7 @@ function DynastyBrowserPage({ profile, onSelect }) {
       const matchesQuery = !normalizedQuery
         || member.firstName?.toLowerCase().includes(normalizedQuery)
         || member.nicknameText?.toLowerCase().includes(normalizedQuery)
+        || String(member.characterId ?? '').toLowerCase().includes(normalizedQuery)
       const matchesHouse = house === 'all' || member.houseName === house
       const matchesStatus = status === 'all'
         || (status === 'living' && member.isAlive !== false)
@@ -57,7 +58,7 @@ function DynastyBrowserPage({ profile, onSelect }) {
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Name or nickname"
+            placeholder="Name, nickname, or character ID"
           />
         </label>
         <label className="dynasty-filter">

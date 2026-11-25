@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import FamilyTree from './FamilyTree.jsx'
 
 /**
  * Renders an empty-aware list of string or title items.
@@ -227,6 +228,9 @@ function PlayerCharacterRecap({ profile, selectedCharacterId: requestedCharacter
   if (Array.isArray(profile.characterDirectory)) characterDirectory = profile.characterDirectory
   const membersById = new Map(characterDirectory.map((member) => [member.characterId, member]))
   const selected = membersById.get(selectedCharacterId) || profile
+  if (!membersById.has(selected.characterId)) {
+    membersById.set(selected.characterId, selected)
+  }
   let relationshipLabel = 'Marriage / family relation'
   if (selected.isPlayer) relationshipLabel = 'Current player character'
   else if (selected.isDynastyMember) relationshipLabel = 'Dynasty member'
@@ -234,11 +238,6 @@ function PlayerCharacterRecap({ profile, selectedCharacterId: requestedCharacter
   if (selected.birth) lifespan = selected.birth
   if (selected.death) lifespan += ` — ${selected.death}`
   else lifespan += ' — Living'
-  let spouseCharacterIds = selected.spouseIds || []
-  if (selected.primarySpouseId) {
-    spouseCharacterIds = [...new Set([selected.primarySpouseId, ...(selected.spouseIds || [])])]
-  }
-
   /**
    * Switches the displayed character and keeps the family tabs useful.
    * @param {string} characterId The character ID to display.
@@ -377,29 +376,10 @@ function PlayerCharacterRecap({ profile, selectedCharacterId: requestedCharacter
               <p className="empty-value">No primary heir available in this save.</p>
             </section>
           )}
-          <RelationshipSection
-            title="Parents"
-            characterIds={selected.parentIds || []}
+          <FamilyTree
+            character={selected}
             membersById={membersById}
-            onSelect={selectCharacter}
-          />
-          <RelationshipSection
-            title="Siblings"
-            characterIds={selected.siblingIds || []}
-            membersById={membersById}
-            onSelect={selectCharacter}
-          />
-          <RelationshipSection
-            title="Spouses"
-            characterIds={spouseCharacterIds}
-            membersById={membersById}
-            onSelect={selectCharacter}
-          />
-          <RelationshipSection
-            title="Children"
-            characterIds={selected.childIds || []}
-            membersById={membersById}
-            onSelect={selectCharacter}
+            onOpenProfile={selectCharacter}
           />
         </div>
       )}
