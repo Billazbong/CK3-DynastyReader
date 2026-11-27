@@ -387,20 +387,57 @@ function reconcileIntervalsAtDeath(intervals, deathDate) {
 }
 
 /**
+ * Finds the first event strictly later than a date in an ordered title history.
+ * @param {{date: string}[]} events Chronologically ordered history events.
+ * @param {string} date The date to search after.
+ * @param {number} startIndex Earliest index that may be returned.
+ * @returns {number} The matching index, or the event count when none exists.
+ */
+function findFirstEventAfter(events, date, startIndex = 0) {
+  let low = startIndex
+  let high = events.length
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    if (compareCk3Dates(events[middle].date, date) <= 0) low = middle + 1
+    else high = middle
+  }
+  return low
+}
+
+/**
  * Builds a holder-indexed cache of titles and holdings for character normalization.
  * @param {string} gamestate The complete CK3 gamestate text.
+ * @param {Map<string, {priority: number, characterId: string}>} titleHeirsByHolder Saved heir assignments indexed by holder.
+ * @param {Map<string, {titleKey: string, historyEvents: object[], eventIndex: number}[]>} successionEventsByHolder Title-history events grouped by prior holder.
  * @returns {Map<string, {heldTitles: object[], holdings: object[]}>} Titles grouped by holder ID.
  */
-function buildTitleCache(gamestate) {
+function buildTitleCache(gamestate, titleHeirsByHolder, successionEventsByHolder) {
   const cache = new Map()
   const landedTitles = findBlock(gamestate, 'landed_titles')
   if (!landedTitles) return cache
+
+  const explicitLossTypes = new Set([
+    'revoked',
+    'destroyed',
+    'leased_out',
+    'lease_revoked',
+    'usurped',
+  ])
 
   for (const record of readTopLevelRecords(landedTitles)) {
     const titleKey = readScalar(record.content, 'key') || record.key
     const titleName = findTitleName(record.content) || titleKey
     const currentHolder = readScalar(record.content, 'holder')
     const currentHolderDate = readScalar(record.content, 'date')
+    const heirIds = readIdList(record.content, 'heir')
+    if (currentHolder && heirIds.length > 0) {
+      const priority = getTitlePriority(titleKey)
+      const currentHeir = titleHeirsByHolder.get(currentHolder)
+      if (!currentHeir || priority > currentHeir.priority) {
+        titleHeirsByHolder.set(currentHolder, { priority, characterId: heirIds[0] })
+      }
+    }
+
     const history = findBlock(record.content, 'history')
     const historyEvents = []
 
@@ -425,21 +462,25 @@ function buildTitleCache(gamestate) {
 
     historyEvents.sort((left, right) => compareCk3Dates(left.date, right.date))
 
-    const explicitLossTypes = new Set([
-      'revoked',
-      'destroyed',
-      'leased_out',
-      'lease_revoked',
-      'usurped',
-    ])
+    for (let eventIndex = 0; eventIndex < historyEvents.length; eventIndex += 1) {
+      const { holder } = historyEvents[eventIndex]
+      if (!holder) continue
+      if (!successionEventsByHolder.has(holder)) successionEventsByHolder.set(holder, [])
+      successionEventsByHolder.get(holder).push({ titleKey, historyEvents, eventIndex })
+    }
 
-    const characterIds = new Set(historyEvents.map((event) => event.holder))
+    const acquisitionsByHolder = new Map()
+    for (let eventIndex = 0; eventIndex < historyEvents.length; eventIndex += 1) {
+      const event = historyEvents[eventIndex]
+      if (!acquisitionsByHolder.has(event.holder)) acquisitionsByHolder.set(event.holder, [])
+      acquisitionsByHolder.get(event.holder).push({ event, eventIndex })
+    }
+
+    const characterIds = new Set(acquisitionsByHolder.keys())
     if (currentHolder) characterIds.add(currentHolder)
 
     for (const characterId of characterIds) {
-      const acquisitions = historyEvents
-        .map((event, eventIndex) => ({ event, eventIndex }))
-        .filter(({ event }) => event.holder === characterId)
+      const acquisitions = acquisitionsByHolder.get(characterId) || []
 
       if (!acquisitions.length && currentHolder === characterId && currentHolderDate) {
         acquisitions.push({
@@ -454,20 +495,20 @@ function buildTitleCache(gamestate) {
       }
 
       for (const { event: acquisition, eventIndex: acquisitionIndex } of acquisitions) {
-        let laterEvents = historyEvents.filter((event) =>
-          compareCk3Dates(event.date, acquisition.date) > 0,
+        let lossEvent = null
+        const firstLaterEvent = findFirstEventAfter(
+          historyEvents,
+          acquisition.date,
+          Math.max(0, acquisitionIndex + 1),
         )
-        if (acquisitionIndex >= 0) {
-          laterEvents = historyEvents.slice(acquisitionIndex + 1)
+        for (let laterIndex = firstLaterEvent; laterIndex < historyEvents.length; laterIndex += 1) {
+          const event = historyEvents[laterIndex]
+          if (event.holder !== characterId
+            || (Boolean(event.type) && explicitLossTypes.has(event.type))) {
+            lossEvent = event
+            break
+          }
         }
-
-        let lossEvent = laterEvents.find((event) => {
-          if (compareCk3Dates(event.date, acquisition.date) <= 0) return false
-          return event.holder !== characterId
-            || (event.holder === characterId
-              && Boolean(event.type)
-              && explicitLossTypes.has(event.type))
-        })
 
         const interval = {
           id: `${titleKey}-${characterId}-${acquisition.date}`,
@@ -624,92 +665,42 @@ function findSavedCharacterHeir(characterRecord) {
  * @param {string} characterId The character whose heir is being resolved.
  * @returns {string|null} A saved heir character ID or null.
  */
-function findSavedTitleHeir(gamestate, characterId) {
-  const landedTitles = findBlock(gamestate, 'landed_titles')
-  if (!landedTitles) return null
-
-  const candidates = []
-  for (const record of readTopLevelRecords(landedTitles)) {
-    if (readScalar(record.content, 'holder') !== characterId) continue
-
-    const titleKey = readScalar(record.content, 'key') || record.key
-    const heirIds = readIdList(record.content, 'heir')
-    if (heirIds.length === 0) continue
-
-    candidates.push({
-      priority: getTitlePriority(titleKey),
-      heirIds,
-    })
-  }
-
-  candidates.sort((left, right) => right.priority - left.priority)
-  if (candidates.length === 0) return null
-
-  const topPriority = candidates[0].priority
-  const topCandidates = candidates
-    .filter((candidate) => candidate.priority === topPriority)
-    .flatMap((candidate) => candidate.heirIds)
-  const uniqueCandidates = [...new Set(topCandidates)]
-  if (uniqueCandidates.length === 1) return uniqueCandidates[0]
-  return uniqueCandidates[0] || null
-}
-
 /**
  * Infers a primary heir from title transfers after a character's death.
- * @param {string} gamestate The complete CK3 gamestate text.
+ * @param {Map<string, {titleKey: string, historyEvents: object[], eventIndex: number}[]>} successionEventsByHolder Title-history events grouped by prior holder.
  * @param {string} characterId The deceased character ID.
  * @param {string|null} deathDate The character's saved death date.
  * @param {Set<string>} knownCharacterIds Character IDs available in the profile directory.
  * @returns {string|null} An inferred successor ID or null.
  */
-function inferHeirFromTitleSuccession(gamestate, characterId, deathDate, knownCharacterIds) {
+function inferHeirFromTitleSuccession(successionEventsByHolder, characterId, deathDate, knownCharacterIds) {
   if (!deathDate) return null
 
-  const landedTitles = findBlock(gamestate, 'landed_titles')
-  if (!landedTitles) return null
-
   const successorScores = new Map()
-  for (const record of readTopLevelRecords(landedTitles)) {
-    const titleKey = readScalar(record.content, 'key') || record.key
-    const history = findBlock(record.content, 'history')
-    if (!history) continue
-
-    const eventPattern = /([0-9]+\.[0-9]+\.[0-9]+)=\{([^}]*)\}/g
-    let match
-    const historyEvents = []
-    while ((match = eventPattern.exec(history)) !== null) {
-      const holder = readScalar(match[2], 'holder')
-      if (holder) {
-        historyEvents.push({
-          date: match[1],
-          holder,
-          type: readScalar(match[2], 'type'),
-        })
-      }
+  for (const occurrence of successionEventsByHolder.get(characterId) || []) {
+    const { titleKey, historyEvents, eventIndex } = occurrence
+    let low = eventIndex + 1
+    let high = historyEvents.length
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2)
+      if (compareCk3Dates(historyEvents[middle].date, deathDate) < 0) low = middle + 1
+      else high = middle
     }
-    historyEvents.sort((left, right) => compareCk3Dates(left.date, right.date))
+    for (let laterIndex = Math.max(eventIndex + 1, low); laterIndex < historyEvents.length; laterIndex += 1) {
+      const successorId = historyEvents[laterIndex].holder
+      if (successorId === characterId || !knownCharacterIds.has(successorId)) continue
 
-    for (let index = 0; index < historyEvents.length; index += 1) {
-      if (historyEvents[index].holder !== characterId) continue
-
-      for (let laterIndex = index + 1; laterIndex < historyEvents.length; laterIndex += 1) {
-        const successorEvent = historyEvents[laterIndex]
-        if (successorEvent.holder === characterId) continue
-        if (compareCk3Dates(successorEvent.date, deathDate) < 0) continue
-        if (!knownCharacterIds.has(successorEvent.holder)) continue
-
-        const existing = successorScores.get(successorEvent.holder) || {
-          titleCount: 0,
-          highestPriority: 0,
-        }
-        existing.titleCount += 1
-        existing.highestPriority = Math.max(
-          existing.highestPriority,
-          getTitlePriority(titleKey),
-        )
-        successorScores.set(successorEvent.holder, existing)
-        break
+      const existing = successorScores.get(successorId) || {
+        titleCount: 0,
+        highestPriority: 0,
       }
+      existing.titleCount += 1
+      existing.highestPriority = Math.max(
+        existing.highestPriority,
+        getTitlePriority(titleKey),
+      )
+      successorScores.set(successorId, existing)
+      break
     }
   }
 
@@ -841,10 +832,11 @@ function resolveHouseAndDynasty(gamestate, dynastyHouseId, houseCache) {
  * @param {string|null} playerCharacterId The currently controlled character ID.
  * @param {Map<string, {heldTitles: object[], holdings: object[]}>} titleCache Holder-indexed title cache.
  * @param {Map<string|null, object>} houseCache Resolved house metadata cache.
+ * @param {Map<string, {priority: number, characterId: string}>} titleHeirsByHolder Saved heir assignments indexed by holder.
  * @param {{livingIds: Set<string>, deadIds: Set<string>}|null} statusSets Explicit character status sets.
  * @returns {object} Normalized character profile.
  */
-function normalizeCharacter(gamestate, characterId, character, playerCharacterId, titleCache, houseCache, statusSets = null) {
+function normalizeCharacter(gamestate, characterId, character, playerCharacterId, titleCache, houseCache, titleHeirsByHolder, statusSets = null) {
   const firstName = readScalar(character, 'first_name')
   const nicknameText = readScalar(character, 'nickname_text')
   const nickname = readScalar(character, 'nickname')
@@ -868,9 +860,9 @@ function normalizeCharacter(gamestate, characterId, character, playerCharacterId
   let house = resolveHouseAndDynasty(gamestate, dynastyHouseId, houseCache)
   const directDynastyId = readScalar(character, 'dynasty')
   if (directDynastyId && house.dynastyHouseId) {
-    console.warn(
-      `[CK3] Character ${characterId} has direct dynasty=${directDynastyId}; house ${house.dynastyHouseId} resolved dynasty=${house.dynastyId || 'unresolved'}`,
-    )
+    // console.warn(
+    //   `[CK3] Character ${characterId} has direct dynasty=${directDynastyId}; house ${house.dynastyHouseId} resolved dynasty=${house.dynastyId || 'unresolved'}`,
+    // )
   }
   if (!house.dynastyId && directDynastyId) {
     house = { ...house, dynastyId: directDynastyId }
@@ -884,7 +876,7 @@ function normalizeCharacter(gamestate, characterId, character, playerCharacterId
   let primaryHeirSource = null
   if (primaryHeirId) primaryHeirSource = 'save registry'
 
-  const savedTitleHeirId = findSavedTitleHeir(gamestate, characterId)
+  const savedTitleHeirId = titleHeirsByHolder.get(characterId)?.characterId || null
   if (!primaryHeirId && savedTitleHeirId) {
     primaryHeirId = savedTitleHeirId
     primaryHeirSource = 'title registry'
@@ -1026,7 +1018,9 @@ export async function parseCk3Save(file, onProgress) {
   }
 
   reportProgress(55, 'Normalizing the player character...')
-  const titleCache = buildTitleCache(text)
+  const titleHeirsByHolder = new Map()
+  const successionEventsByHolder = new Map()
+  const titleCache = buildTitleCache(text, titleHeirsByHolder, successionEventsByHolder)
   const houseCache = new Map()
   const statusSets = findCharacterStatusSets(text)
   const playerProfile = normalizeCharacter(
@@ -1036,15 +1030,16 @@ export async function parseCk3Save(file, onProgress) {
     characterId,
     titleCache,
     houseCache,
+    titleHeirsByHolder,
     statusSets,
   )
-  console.log('[CK3] Player dynasty resolution', {
-    characterId,
-    houseId: playerProfile.dynastyHouseId,
-    dynastyId: playerProfile.dynastyId,
-    houseName: playerProfile.houseName,
-    dynastyName: playerProfile.dynastyName,
-  })
+  //console.log('[CK3] Player dynasty resolution', {
+  //  characterId,
+  //  houseId: playerProfile.dynastyHouseId,
+  //  dynastyId: playerProfile.dynastyId,
+  //  houseName: playerProfile.houseName,
+  //  dynastyName: playerProfile.dynastyName,
+  //})
   const characterRecords = findCharacterRecords(text)
   if (!characterRecords.has(characterId)) characterRecords.set(characterId, character)
   const dynastyProfilesById = new Map()
@@ -1073,27 +1068,23 @@ export async function parseCk3Save(file, onProgress) {
         characterId,
         titleCache,
         houseCache,
+        titleHeirsByHolder,
         statusSets,
       )
       if (recordId === characterId) normalizedCharacter = playerProfile
-      const links = readDirectFamilyLinks(recordContent)
-      normalizedCharacter.parentIds = links.parentIds
-      normalizedCharacter.childIds = links.childIds
-      normalizedCharacter.spouseIds = links.spouseIds
-      normalizedCharacter.primarySpouseId = links.spouseIds[0] || null
       normalizedCharacter.isDynastyMember = true
       dynastyProfilesById.set(recordId, normalizedCharacter)
 
-      console.log(
-        `[CK3] Dynasty character ${recordId}: ${normalizedCharacter.firstName}`,
-        {
-          houseId: normalizedCharacter.dynastyHouseId,
-          dynastyId: normalizedCharacter.dynastyId,
-          parents: normalizedCharacter.parentIds,
-          children: normalizedCharacter.childIds,
-          spouses: normalizedCharacter.spouseIds,
-        },
-      )
+      //console.log(
+      //  `[CK3] Dynasty character ${recordId}: ${normalizedCharacter.firstName}`,
+      //  {
+      //    houseId: normalizedCharacter.dynastyHouseId,
+      //    dynastyId: normalizedCharacter.dynastyId,
+      //    parents: normalizedCharacter.parentIds,
+      //    children: normalizedCharacter.childIds,
+      //    spouses: normalizedCharacter.spouseIds,
+      //  },
+      //)
     }
     await yieldToBrowser()
   }
@@ -1113,33 +1104,52 @@ export async function parseCk3Save(file, onProgress) {
         characterId,
         titleCache,
         houseCache,
+        titleHeirsByHolder,
         statusSets,
       )
       spouseProfile.isDynastyMember = false
       characterDirectoryById.set(spouseId, spouseProfile)
-      console.log(`[CK3] Direct spouse ${spouseId}: ${spouseProfile.firstName}`)
+      // console.log(`[CK3] Direct spouse ${spouseId}: ${spouseProfile.firstName}`)
     }
   }
 
   const dynastyProfiles = [...dynastyProfilesById.values()]
+  const parentsByChild = new Map()
+  const dynastyMemberOrder = new Map(
+    dynastyProfiles.map((member, index) => [member.characterId, index]),
+  )
+  for (const relative of dynastyProfiles) {
+    for (const childId of relative.childIds) {
+      if (!parentsByChild.has(childId)) parentsByChild.set(childId, [])
+      parentsByChild.get(childId).push(relative.characterId)
+    }
+  }
+
   for (const candidate of characterDirectoryById.values()) {
-    for (const relative of dynastyProfiles) {
-      if (relative.characterId === candidate.characterId) continue
-      if (relative.childIds.includes(candidate.characterId)
-        && !candidate.parentIds.includes(relative.characterId)) {
-        candidate.parentIds.push(relative.characterId)
+    for (const parentId of parentsByChild.get(candidate.characterId) || []) {
+      if (!candidate.parentIds.includes(parentId)) {
+        candidate.parentIds.push(parentId)
       }
     }
   }
 
+  const dynastyMembersByParent = new Map()
+  for (const member of dynastyProfiles) {
+    for (const parentId of member.parentIds) {
+      if (!dynastyMembersByParent.has(parentId)) dynastyMembersByParent.set(parentId, [])
+      dynastyMembersByParent.get(parentId).push(member.characterId)
+    }
+  }
+
   for (const candidate of dynastyProfiles) {
-    const siblingIds = dynastyProfiles
-      .filter((relative) => {
-        if (relative.characterId === candidate.characterId) return false
-        return candidate.parentIds.some((parentId) => relative.parentIds.includes(parentId))
-      })
-      .map((relative) => relative.characterId)
-    candidate.siblingIds = siblingIds
+    const siblingIds = new Set()
+    for (const parentId of candidate.parentIds) {
+      for (const siblingId of dynastyMembersByParent.get(parentId) || []) {
+        if (siblingId !== candidate.characterId) siblingIds.add(siblingId)
+      }
+    }
+    candidate.siblingIds = [...siblingIds]
+      .sort((left, right) => dynastyMemberOrder.get(left) - dynastyMemberOrder.get(right))
   }
 
   const knownCharacterIds = new Set(characterDirectoryById.keys())
@@ -1148,7 +1158,7 @@ export async function parseCk3Save(file, onProgress) {
     if (!candidate.death) continue
 
     const inferredHeirId = inferHeirFromTitleSuccession(
-      text,
+      successionEventsByHolder,
       candidate.characterId,
       candidate.death,
       knownCharacterIds,

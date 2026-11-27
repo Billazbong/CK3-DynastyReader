@@ -99,6 +99,7 @@ The `.ck3` importer is browser-local and:
 - Uses JSZip to locate and decompress `gamestate`.
 - Resolves the player from `played_character.character`, or validates against `player.owner`.
 - Normalizes character, house, dynasty, trait, and landed-title records.
+- Builds title-heir and succession indexes once per import, and indexes family links so larger dynasties do not require repeated full-title or all-pairs scans.
 - Uses title `title_name_data.name` values for readable names.
 - Falls back to title keys and trait IDs when localization is unavailable.
 
